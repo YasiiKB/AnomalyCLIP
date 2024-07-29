@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 
 
+# λ1 
 def sparsity(arr, lambda_sparse):
     loss = torch.mean(arr)
     return lambda_sparse * loss
 
-
+# λ2
 def smooth(arr, lambda_smooth):
     arr2 = torch.zeros_like(arr)
     arr2[:-1] = arr[1:]
@@ -18,6 +19,32 @@ def smooth(arr, lambda_smooth):
 
 
 class ComputeLoss:
+    '''
+    Function to compute the loss:
+        L = L^DIR_A + L^DIR_N + LA+ + LA− + LN+ + λ1Lspa + λ2Lsmo
+    Args:
+        normal_id: int
+        num_topk: int
+        lambda_dir_abn: float
+        lambda_dir_nor: float
+        lambda_topk_abn: float
+        lambda_bottomk_abn: float
+        lambda_topk_nor: float
+        lambda_smooth(λ1): float    -- hyperparameter
+        lambda_sparse(λ2): float    -- hyperparameter
+        frames_per_segment: int (F) -- hyperparameter
+        num_segments: int (K)       -- hyperparameter
+    
+    Returns:
+        cost: float
+        ldir_abn: float     = L^DIR_A = -1 * mean(similarity_topk_total)
+        ldir_nor: float     = L^DIR_N = mean(max(similarity_normal))
+        ltopk_abn: float    = L^topk_abnormal = loss^topk_abnormal = loss_fn(aclass_log_probs_topk, alabels_per_topk)
+        lbottomk_abn: float = L^bottomk_abnormal = loss_fn(aclass_log_probs_bottomk, (torch.ones(aclass_log_probs_bottomk.shape[0]) * self.normal_id).long().to(similarity.device))
+        ltopk_nor: float    = L^topk_normal = loss_fn(nclass_log_probs_topk, nlabels_per_topk)
+        lsmooth: float      = λ1Lspa = λ1 * mean(scores)
+        lsparse: float      = λ2Lsmo  = λ2 * sum((scores[i+1] - scores[i])^2)
+    ''' 
     def __init__(
         self,
         normal_id,
@@ -62,23 +89,27 @@ class ComputeLoss:
         # print("similarity_topk.shape", similarity_topk.shape) # 64*k_abn*16, 13
         # print("scores.shape", scores.shape) # 64*32*16, 1
 
+        # Split the labels 
         alabels = labels[: labels.shape[0] // 2]
         nlabels = labels[labels.shape[0] // 2 :]
 
+        # Repeat the labels to match the similarity shape
         repeat_interleave_params = [
             (alabels, self.num_segments * self.frames_per_segment),
             (alabels, self.num_topk * self.frames_per_segment),
             (nlabels, self.num_topk * self.frames_per_segment),
         ]
 
+        # Label for each frame in the segment, label for each abnormal frame in the topk and label for each  normal frame in the topk
         alabels_per_frame, alabels_per_topk, nlabels_per_topk = (
             label.repeat_interleave(repeat) for label, repeat in repeat_interleave_params
         )
 
+        # Split the similarity scores
         asimilarity_topk = similarity_topk[: alabels_per_topk.shape[0]]
-
         nsimilarity = similarity[similarity.shape[0] // 2 :]
 
+        # Subtract 1 from the abnormal labels to match the class indices
         alabels_per_frame[alabels_per_frame > self.normal_id] -= 1
         alabels_per_topk[alabels_per_topk > self.normal_id] -= 1
 
@@ -86,27 +117,32 @@ class ComputeLoss:
 
         for c in range(similarity.shape[1]):
             # Loss on abnormal ones
-            abnormal_indices_topk = (alabels_per_topk == c).nonzero(as_tuple=True)[0]
+            abnormal_indices_topk = (alabels_per_topk == c).nonzero(as_tuple=True)[0] # get the indices of the abnormal frames (where the labels match the class c)
 
-            if abnormal_indices_topk.nelement():
+            if abnormal_indices_topk.nelement(): # if abnormal_indices_topk is not empty (nelement() returns the number of elements in the tensor)
+                
+                # Get the similarity scores for the abnormal frames of class c 
                 asimilarity_topk_c = asimilarity_topk[abnormal_indices_topk, c]  # (bs_c*k*seg_len)
 
                 asimilarity_topk_total.append(asimilarity_topk_c)
 
         asimilarity_topk_total = torch.cat(asimilarity_topk_total, dim=0)
 
-        # on most abnormal
-        ldir_abn = self.lambda_dir_abn * -1.0 * asimilarity_topk_total.mean(dim=0)
+        # on most abnormal 
+        ldir_abn = self.lambda_dir_abn * -1.0 * asimilarity_topk_total.mean(dim=0) # get the mean of the similarity scores for the abnormal frames in the segment
 
         # on all normal
-        ldir_nor = (nsimilarity.max(dim=1)[0]).mean(dim=0)
-        ldir_nor = self.lambda_dir_nor * ldir_nor
+        ldir_nor = (nsimilarity.max(dim=1)[0]).mean(dim=0) # get the maximum similarity score for each normal frame in the segment and then take the mean of all the frames
+        ldir_nor = self.lambda_dir_nor * ldir_nor 
 
         num_classes = similarity.shape[1] + 1  # +1 for normal class
+
         # compute probability for each frame to be of each class given the abnormality score
         softmax_similarity = torch.softmax(similarity, dim=1)
-        # element-wise multiplication
+        
+        # element-wise multiplication with the abnormality score to get the class probabilities
         class_probs = softmax_similarity * scores.unsqueeze(1)  # shape: [1024, 1]
+        
         # add normal probability to the class probabilities
         normal_probs = 1 - scores
         normal_probs = normal_probs.unsqueeze(1)  # Add a new dimension to match class_probs shape
@@ -147,6 +183,7 @@ class ComputeLoss:
         aclass_log_probs_bottomk = torch.log(aclass_probs_bottomk)
 
         alabels_per_topk[alabels_per_topk >= self.normal_id] += 1
+        
         # assert that normal id is not in abnormal labels
         assert torch.all(alabels_per_topk != self.normal_id), "Normal id is in abnormal labels"
 

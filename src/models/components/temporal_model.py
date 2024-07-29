@@ -6,6 +6,23 @@ from src.models.components.classification_head import ClassificationHead
 
 
 class TemporalModel(nn.Module):
+    '''
+    Processing Temporal Features and short and long term temporal dependencies
+    Classifying the features using Axial Attention and Classification Head into anomaly or not
+
+    Args:
+        input_size (int): Input size of the features
+        emb_size (int): Embedding size of the features
+        output_size (int): Output size of the features
+        heads (int): Number of heads in the Axial Attention
+        dim_heads (int): Dimension of the heads in the Axial Attention
+        depth (int): Depth of the Axial Attention
+        num_segments (int): Number of segments in the features
+        seg_length (int): Length of the segments in the
+    
+    Returns:
+        scores (Tensor): Scores of the features
+    '''
     def __init__(
         self,
         input_size: int,
@@ -40,7 +57,9 @@ class TemporalModel(nn.Module):
         self.classifier = ClassificationHead(self.emb_size, output_size)
 
     def forward(self, features, segment_size, test_mode):
-        features = self.projection(features)
+        
+        # Get features from the input (features) by projecting them to the embedding size
+        features = self.projection(features) 
 
         if test_mode:
             features = rearrange(
@@ -61,6 +80,7 @@ class TemporalModel(nn.Module):
 
         features = rearrange(features, "b n l d -> b d n l")
 
+        # Apply Axial Attention to the features
         features = self.axial_attn(
             features
         )  # (batch_size, num_segments, seg_length, num_classes - 1)
@@ -72,6 +92,7 @@ class TemporalModel(nn.Module):
         else:
             features = rearrange(features, "b n l d -> (b n l) d ")
 
+        # Classify the features using the Classification Head into anomaly or not
         scores = self.classifier(features)
 
         return scores

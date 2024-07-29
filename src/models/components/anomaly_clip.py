@@ -65,8 +65,24 @@ class AnomalyCLIP(nn.Module):
 
         # CLIP's default precision is fp16
         clip_model.float()
+        
+    # FIXED PATHS ------- 
+        try: 
+            classes_df = pd.read_csv(self.labels_file)
+        except FileNotFoundError:
+            import os
+            current_path = os.getcwd()
+            # print(f"Current path: {current_path}")
+            path = self.labels_file
+            # print(f"Path: {path}")
+            parts = path.split('/')
+            result = '/'.join(parts[-2:])
+            self.labels_file = os.path.join(current_path, result)
+            # print(f"Labels file: {self.labels_file}") 
+            classes_df = pd.read_csv(self.labels_file)
+    # FIXED PATHS ------- 
 
-        classes_df = pd.read_csv(self.labels_file)
+        # classes_df = pd.read_csv(self.labels_file)
         classnames = sorted(c for i, c in classes_df.values.tolist())
 
         self.embedding_dim = clip_model.ln_final.weight.shape[0]
@@ -215,9 +231,19 @@ class AnomalyCLIP(nn.Module):
             )
 
     def get_text_features(self):
+        '''
+        Function to get text features from prompt learner and tokenized prompts using CLIP's text encoder
+        '''
+
+        # Get promts from prompt learner
         prompts = self.prompt_learner()
+
+        # Tokenize prompts
         tokenized_prompts = self.tokenized_prompts
+
+        # Encode text features from prompts and tokenized prompts using CLIP's text encoder
         text_features = self.text_encoder(prompts, tokenized_prompts)  # num_classes, 512
+        
         return text_features
 
     def get_temporal_model_input(self, image_features, similarity):

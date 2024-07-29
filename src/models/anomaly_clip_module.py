@@ -170,12 +170,17 @@ class AnomalyCLIPModule(LightningModule):
                 torch.save(self.ncentroid, ncentroid_file)
 
     def model_step(self, batch: Any):
+        '''
+        This function is used to compute the forward pass of the model
+        Using AnomalyCLIP model from anomaly_clip.py 
+        '''
         nbatch, abatch = batch
         nimage_features, nlabel = nbatch
         aimage_features, alabel = abatch
         image_features = torch.cat((aimage_features, nimage_features), 0)
         labels = torch.cat((alabel, nlabel), 0)
 
+        
         (
             logits,
             logits_topk,

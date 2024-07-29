@@ -221,23 +221,61 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         )
 
     def _parse_labelsfile(self):
-        self.labels = pd.read_csv(self.labels_file) if self.labels_file else None
+
+        # self.labels = pd.read_csv(self.labels_file) if self.labels_file else None
+
+        # FIXED PATHS ------- 
+        if self.labels_file:
+            current_path = os.getcwd()
+            path = self.labels_file
+            parts = path.split('/')
+            result = '/'.join(parts[-2:])
+            self.labels_file = os.path.join(current_path, result)
+        
+            self.labels = pd.read_csv(self.labels_file)
+        else:
+            self.labels = None
+
+        # print("parse labels file done!")    
+
 
     def _parse_annotationfile(self):
+        
+        # FIXED PATHS ------- 
+        current_path = os.getcwd()
+        path = self.annotationfile_path
+        parts = path.split('/')
+        result = '/'.join(parts[-4:])
+        self.annotationfile_path = os.path.join(current_path, result)
+        # FIXED PATHS ------- 
+
         self.video_list = [
             VideoRecord(x.strip().split(), self.root_path, self.spatialannotationdir_path)
             for x in open(self.annotationfile_path)
         ]
 
+        # print("parse annotation file done!")
+
     def _temporal_testing_annotations(self):
-        annotations = {}
+        annotations = {}        
         if self.temporal_annotation_file:
+
+            # FIXED PATHS ------- 
+            current_path = os.getcwd()
+            path = self.temporal_annotation_file
+            parts = path.split('/')
+            result = '/'.join(parts[-4:])
+            self.temporal_annotation_file = os.path.join(current_path, result)
+            # FIXED PATHS ------- 
+
             with open(self.temporal_annotation_file) as annotations_f:
                 lines = annotations_f.readlines()
                 annotations = {
                     str(Path(line.strip().split()[0]).stem): line.strip().split()[2:]
                     for line in lines
                 }
+        
+        print("temporal testing annotations done!")
         return annotations
 
     def _get_start_indices(self, record: VideoRecord) -> "np.ndarray[int]":
