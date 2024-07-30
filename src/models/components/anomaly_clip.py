@@ -65,24 +65,8 @@ class AnomalyCLIP(nn.Module):
 
         # CLIP's default precision is fp16
         clip_model.float()
-        
-    # FIXED PATHS ------- 
-        try: 
-            classes_df = pd.read_csv(self.labels_file)
-        except FileNotFoundError:
-            import os
-            current_path = os.getcwd()
-            # print(f"Current path: {current_path}")
-            path = self.labels_file
-            # print(f"Path: {path}")
-            parts = path.split('/')
-            result = '/'.join(parts[-2:])
-            self.labels_file = os.path.join(current_path, result)
-            # print(f"Labels file: {self.labels_file}") 
-            classes_df = pd.read_csv(self.labels_file)
-    # FIXED PATHS ------- 
 
-        # classes_df = pd.read_csv(self.labels_file)
+        classes_df = pd.read_csv(self.labels_file)
         classnames = sorted(c for i, c in classes_df.values.tolist())
 
         self.embedding_dim = clip_model.ln_final.weight.shape[0]
