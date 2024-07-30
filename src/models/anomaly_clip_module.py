@@ -410,7 +410,7 @@ class AnomalyCLIPModule(LightningModule):
     def on_test_start(self):
         ckpt_path = Path(self.trainer.ckpt_path)
         save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
-        save_dir = Path(os.path.join("/usr/src/app/logs/train/runs", str(save_dir)))
+        save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # changed path
         if not save_dir.is_dir():
             save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -576,7 +576,7 @@ class AnomalyCLIPModule(LightningModule):
 
         ckpt_path = Path(self.trainer.ckpt_path)
         save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
-        save_dir = Path(os.path.join("/usr/src/app/logs/eval/runs", str(save_dir)))
+        save_dir = Path(os.path.join("src/app/logs/eval/runs", str(save_dir))) # changed path
         if not save_dir.is_dir():
             save_dir.mkdir(parents=True, exist_ok=True)
         log.info(f"Saving results to {save_dir}")
