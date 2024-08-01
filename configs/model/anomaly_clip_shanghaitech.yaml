@@ -24,7 +24,7 @@ net:
   n_ctx: 8
   heads: 8
   dim_heads:
-  load_from_features: ${data.load_from_features}
+  load_from_features: ${data.load_from_features} # remove line if you want load raw images instead of features
   stride: ${data.stride}
   ncrops: ${data.ncrops}
   concat_features: True

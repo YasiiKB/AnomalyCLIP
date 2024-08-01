@@ -145,7 +145,7 @@ class AnomalyCLIPModule(LightningModule):
             self.ncentroid = torch.load(ncentroid_file)
             print("Loaded ncentroid!")
         else:
-            print(f"ncentroid file {ncentroid_file} not found! Computing ncentroid from scratch...")
+            print(f"ncentroid file NOT found! Computing ncentroid from scratch...")
             with torch.no_grad():
 
                 # Data loader for the normal class
@@ -162,6 +162,10 @@ class AnomalyCLIPModule(LightningModule):
                         nimage_features = nimage_features[: len(nlabels.squeeze())]
                         nimage_features = nimage_features.to(self.device)
 
+                        if nlabels.shape[1] > 1000:
+                            print('nlables in train_start:',nlabels)
+                            print('nlables in train_start shape:',nlabels.shape)
+
                         # Accumulate the sum of embeddings
                         embedding_sum += nimage_features.sum(dim=0)
                         count += nimage_features.shape[0]
@@ -174,7 +178,8 @@ class AnomalyCLIPModule(LightningModule):
                         nimages = nimages[: len(nlabels.squeeze())]
                         nimages = nimages.to(self.device)
                         nimage_features = self.net.image_encoder(nimages)
-
+                        print("nlables in train_start:",nlabels)
+                        
                         # Accumulate the sum of embeddings
                         embedding_sum += nimage_features.sum(dim=0)
                         count += nimage_features.shape[0]
@@ -222,7 +227,7 @@ class AnomalyCLIPModule(LightningModule):
 
     def training_step(self, batch: Any, batch_idx: int):
         '''
-        This function performs the feedforward pass of the model (from model_step) and computes and log the loss
+        This function performs the feedforward pass of the model (from model_step) and computes and logs the loss
         '''
         # Forward pass
         (
@@ -321,8 +326,102 @@ class AnomalyCLIPModule(LightningModule):
     def on_train_epoch_end(self):
         '''
         This function is called at the end of traning and validation of each epoch
-        '''
-        print(f'Traning and validation of epoch {self.trainer.current_epoch} ended')
+        '''     
+        print(f'Training and validation of epoch {self.trainer.current_epoch} ended')
+        # 1 AUG:
+            # I get all the labels from the dataloader (it goes through the nomal videos first) like this: 
+
+                # Train START
+                # nlables in train_start: tensor([[8, 8, 8,  ..., 8, 8, 8]])
+                # nlables in train_start shape: torch.Size([1, 1297]) 
+
+                # Train END
+                # nlabels in train end (f) tensor([[8, 8, 8,  ..., 8, 8, 8]])
+                # nlabels in train end shape (f) torch.Size([1, 1297])
+                # nlabels in train end after flatten (f) tensor([8, 8, 8,  ..., 8, 8, 8])
+                # nlabels in train end after flatten shape (f) torch.Size([1297])
+
+        # TO DO:
+            # Are the centroid (not ncentroids) computed for each class individually? -- what did he even mean by that?
+            # I remember that after some epochs, the centroids are recomputed for each class and saved in a dictionary of centroids
+            # But centroids of each class (abnomality) must be computed using normal frames in those classes (HOW??) since centroids are the average of nomal frames
+            # Goal is to compute the average embedding (of nomral frames) for each class (abnomality) and save them in a dictionary of centroids so we'll have more precise centroids for each class
+            # How can we use these centroid to compute the loss?
+            # No need to do this for the test. Right? 
+
+        # Check epoch condition (if >20, then every single epoch after 20 will recalculate the centroids)
+        if (self.trainer.current_epoch + 1) % 2 == 0:
+            print(f"Epoch {self.trainer.current_epoch + 1}: Recomputing ncentroid for each class...")
+    
+            with torch.no_grad():
+
+                # Data loader for the normal class
+                loader = self.trainer.datamodule.train_dataloader_test_mode()
+    
+                # Initialize a dictionary to accumulate the sum of embeddings and the total count for each class
+                embedding_sums = {}
+                counts = {}
+
+                # if features are loaded from dataloader (change in configs/model), use them directly
+                if self.trainer.datamodule.hparams.load_from_features:
+                    for nimage_features, nlabels, _, _ in loader:
+                        nimage_features = nimage_features.view(-1, nimage_features.shape[-1])
+                        nimage_features = nimage_features[: len(nlabels.squeeze())]
+                        nimage_features = nimage_features.to(self.device)
+
+                        if nlabels.shape[1] > 1000:
+                            print('nlabels in train end (f)',nlabels)
+                            print('nlabels in train end shape (f)',nlabels.shape)
+
+                        # Flatten nlabels to a 1D tensor
+                        nlabels = nlabels.view(-1)
+                        if nlabels.shape[0] > 1000:
+                            print('nlabels in train end after flatten (f)',nlabels)
+                            print('nlabels in train end after flatten shape (f)',nlabels.shape)
+
+                        # Calculate sum of embeddings and count for each class
+                        for label in torch.unique(nlabels):
+                            label = label.item()
+                            if label not in embedding_sums:
+                                embedding_sums[label] = torch.zeros(self.net.embedding_dim).to(self.device)
+                                counts[label] = 0
+        
+                            mask = nlabels.squeeze() == label
+                            embedding_sums[label] += nimage_features[mask].sum(dim=0)
+                            counts[label] += mask.sum().item()
+
+                # if raw images are loaded, first encode them using the image encoder
+                else: 
+                    for nimages, nlabels, _, _ in loader:
+                        b, t, c, h, w = nimages.size()
+                        nimages = nimages.view(-1, c, h, w)
+                        nimages = nimages[: len(nlabels.squeeze())]
+                        nimages = nimages.to(self.device)
+                        nimage_features = self.net.image_encoder(nimages)
+
+                        # Calculate sum of embeddings and count for each class
+                        for label in torch.unique(nlabels):
+                            label = label.item()
+                            if label not in embedding_sums:
+                                embedding_sums[label] = torch.zeros(self.net.embedding_dim).to(self.device)
+                                counts[label] = 0
+        
+                            mask = nlabels.squeeze() == label
+                            embedding_sums[label] += nimage_features[mask].sum(dim=0)
+                            counts[label] += mask.sum().item()
+    
+                # Compute and save the average embedding for each class
+                self.ncentroids = {label: embedding_sums[label] / counts[label] for label in embedding_sums}
+                for label, ncentroid in self.ncentroids.items():
+                    torch.save(ncentroid, Path(self.hparams.save_dir) / f"ncentroid_class_{label}.pt")
+    
+                print("Computed and saved ncentroid for each class!")
+        
+        # Clear lists
+        self.labels.clear()
+        self.class_probs.clear()
+        self.abnormal_scores.clear()
+
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -332,6 +431,10 @@ class AnomalyCLIPModule(LightningModule):
         image_features, labels, label, segment_size = batch
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
+
+        
+        # print('labels in validation:',labels)
+        # print('label shape', label.shape)
 
         save_dir = Path(self.hparams.save_dir)
 
@@ -430,13 +533,16 @@ class AnomalyCLIPModule(LightningModule):
 
         save_dir = Path(self.hparams.save_dir)
 
+        # Save metrics of each epoch (change number of epochs in configs/experiment -- trainer)
         with open(save_dir / f"metrics_{self.trainer.current_epoch}.json", "w") as fp:
             json.dump(metrics, fp, indent=4, sort_keys=True)
 
-        # Clear lists (MAYBE DO THIS IN on_train_epoch_end BECAUSE IT IS CALLED AFTER THIS and I need the label values there)
-        self.labels.clear()
-        self.class_probs.clear()
-        self.abnormal_scores.clear()
+        # # Clear lists --> MOVED TO on_train_epoch_end
+        # self.labels.clear()
+        # self.class_probs.clear()
+        # self.abnormal_scores.clear()
+
+        print(f'Validation of epoch {self.trainer.current_epoch} ended')
 
     def on_test_start(self):
         ckpt_path = Path(self.trainer.ckpt_path)
