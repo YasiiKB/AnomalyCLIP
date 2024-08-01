@@ -131,6 +131,9 @@ class AnomalyCLIPModule(LightningModule):
         )
 
     def on_train_start(self):
+        '''
+        This fuction computes or loads the average embedding of the normal class (ncentroid) before traning starts
+        '''
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
         save_dir = Path(self.hparams.save_dir)
@@ -140,21 +143,30 @@ class AnomalyCLIPModule(LightningModule):
         if ncentroid_file.is_file():
             # file exists, load
             self.ncentroid = torch.load(ncentroid_file)
+            print("Loaded ncentroid!")
         else:
+            print(f"ncentroid file {ncentroid_file} not found! Computing ncentroid from scratch...")
             with torch.no_grad():
+
+                # Data loader for the normal class
                 loader = self.trainer.datamodule.train_dataloader_test_mode()
 
                 # Initialize variables to accumulate the sum of embeddings and the total count
                 embedding_sum = torch.zeros(self.net.embedding_dim).to(self.device)
                 count = 0
 
+                # if features are loaded from dataloader, use them directly
                 if self.trainer.datamodule.hparams.load_from_features:
                     for nimage_features, nlabels, _, _ in loader:
                         nimage_features = nimage_features.view(-1, nimage_features.shape[-1])
                         nimage_features = nimage_features[: len(nlabels.squeeze())]
                         nimage_features = nimage_features.to(self.device)
+
+                        # Accumulate the sum of embeddings
                         embedding_sum += nimage_features.sum(dim=0)
                         count += nimage_features.shape[0]
+
+                # if raw images are loaded, first encode them using the image encoder
                 else:
                     for nimages, nlabels, _, _ in loader:
                         b, t, c, h, w = nimages.size()
@@ -162,12 +174,16 @@ class AnomalyCLIPModule(LightningModule):
                         nimages = nimages[: len(nlabels.squeeze())]
                         nimages = nimages.to(self.device)
                         nimage_features = self.net.image_encoder(nimages)
+
+                        # Accumulate the sum of embeddings
                         embedding_sum += nimage_features.sum(dim=0)
                         count += nimage_features.shape[0]
 
                 # Compute and save the average embedding
                 self.ncentroid = embedding_sum / count
                 torch.save(self.ncentroid, ncentroid_file)
+
+                print("Computed and saved ncentroid! Starting training...")
 
     def model_step(self, batch: Any):
         '''
@@ -205,6 +221,9 @@ class AnomalyCLIPModule(LightningModule):
         )
 
     def training_step(self, batch: Any, batch_idx: int):
+        '''
+        This function performs the feedforward pass of the model (from model_step) and computes and log the loss
+        '''
         # Forward pass
         (
             similarity,
@@ -300,9 +319,16 @@ class AnomalyCLIPModule(LightningModule):
         return {"loss": loss}
 
     def on_train_epoch_end(self):
-        pass
+        '''
+        This function is called at the end of traning and validation of each epoch
+        '''
+        print(f'Traning and validation of epoch {self.trainer.current_epoch} ended')
 
     def validation_step(self, batch: Any, batch_idx: int):
+        '''
+        This fuction loads the batch and ncentroid, performs the forward pass (from model_step)
+        It computes conditional probabilities (softmax_similarity) and joint probabilities (class_probs) which is used in on_validation_epoch_end
+        '''
         image_features, labels, label, segment_size = batch
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
@@ -341,6 +367,10 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores.extend(abnormal_scores)
 
     def on_validation_epoch_end(self):
+        '''
+        This function is called at the end of validation of each epoch.
+        It uses joint probabilities (class_probs) and abnormal_scores to compute evaluation metrics such as AUC, AUPR, mean_mc_auroc, mean_mc_aupr and log their results
+        '''
         labels = torch.stack(self.labels)
         class_probs = torch.stack(self.class_probs)
         abnormal_scores = torch.stack(self.abnormal_scores)
@@ -403,6 +433,7 @@ class AnomalyCLIPModule(LightningModule):
         with open(save_dir / f"metrics_{self.trainer.current_epoch}.json", "w") as fp:
             json.dump(metrics, fp, indent=4, sort_keys=True)
 
+        # Clear lists (MAYBE DO THIS IN on_train_epoch_end BECAUSE IT IS CALLED AFTER THIS and I need the label values there)
         self.labels.clear()
         self.class_probs.clear()
         self.abnormal_scores.clear()
