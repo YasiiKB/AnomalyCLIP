@@ -165,13 +165,16 @@ class AnomalyCLIPModule(LightningModule):
 
                     # extract features and labels in each batch
                     for nimage_features, nlabels, _, _ in loader:
-
+                        print('original nimage_features shape:',nimage_features.shape)
+                
                         # collaps all dimensions except the last one
                         nimage_features = nimage_features.view(-1, nimage_features.shape[-1])
-
+                        print('Collapsed nimage_features shape:',nimage_features.shape)
+                        
+                        print('nlabels shape',len(nlabels.squeeze()))
                         # slice the features to match the number of labels
                         nimage_features = nimage_features[: len(nlabels.squeeze())]
-
+                        print('Sliced nimage_features shape:',nimage_features.shape)
                         # move to device
                         nimage_features = nimage_features.to(self.device)
 
@@ -194,7 +197,10 @@ class AnomalyCLIPModule(LightningModule):
                     
                 # Compute and save the average embedding
                 self.ncentroid = embedding_sum / count  # normalize 
+                print('ncentroid shape:',self.ncentroid.shape) 
                 torch.save(self.ncentroid, ncentroid_file)
+            
+            print('Start Training...')
 
 
 
@@ -334,9 +340,11 @@ class AnomalyCLIPModule(LightningModule):
     def on_train_epoch_end(self):
         '''
         This function is called at the end of traning and validation of each epoch
+        
+        Args:
+            ONLY self (no other arguments)
         '''     
         pass
-
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -356,7 +364,7 @@ class AnomalyCLIPModule(LightningModule):
         # else:
         #     raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
 
-        self.ncentroid = self.calculate_centroids(batch, self.ncentroid)
+        self.ncentroid = self.calculate_centroids(image_features, labels)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -457,7 +465,6 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores.clear()
 
     def on_test_start(self):
-        print('This is on_test_start')
         ckpt_path = Path(self.trainer.ckpt_path)
         save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
         save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # changed path
@@ -504,8 +511,7 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
 
-        print('Calculating ncentroid for each class...')
-        self.ncentroid = self.calculate_centroids(batch, self.ncentroid)
+        #self.ncentroid = self.calculate_centroids(batch, image_features, labels)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -726,18 +732,26 @@ class AnomalyCLIPModule(LightningModule):
         plt.savefig(fig_file)
         plt.close()
 
-    def calculate_centroids(self, batch, ncentroid):
+    def calculate_centroids(self, image_features, labels):
         '''
         IDEA:
-        1# Load the centroids from ncentroid.pt file
-        2# Do the forward pass to get the classes (label for each frame)
+        1# Load the centroids from ncentroid.pt file (DONE)
+        2# Do the forward pass to get the classes (label for each frame) (DONE)
         3# Update the dictionary of centroids with class labels (label, ncentroid)
         4# Update the ncentroid for each class (label) by computing the average embedding of the normal frames in that class and normalizing it (important)
+        ## The updated centroids will be used in validation and test
+
+        To Fix:
+        1# It saves a dictionary in the .pt file which causes this error in anomaly_clip.py line 115:
+                ncentroid = ncentroid.to(image_features.device)
+            AttributeError: 'dict' object has no attribute 'to'
+
+        2# For classes other than 8, the calculated ncentroid is nan
         '''
         # Get labels and image features from the batch
-        image_features, labels, label, segment_size = batch
-        image_features = image_features.to(self.device)
-        labels = labels.squeeze(0).to(self.device)
+        # image_features, labels, label, segment_size = batch
+        # image_features = image_features.to(self.device)
+        # labels = labels.squeeze(0).to(self.device)
 
         # print('labels in Calculate_centroid:',labels)
         # print('labels in  Calculate_centroid shape', labels.shape)
@@ -751,11 +765,68 @@ class AnomalyCLIPModule(LightningModule):
         else:
             raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
         
-        if self.trainer.current_epoch == 0: # find a way to do this out of this funtction --> so it can be used in test too
-            print("Recomputing ncentroid for each class...")
-            print('labels in Calculate_centroid:',labels)
-            print('labels in  Calculate_centroid shape', labels.shape)
+        # print('shape of ncentroid loaded from file',ncentroid.shape) # torch.Size([512])
+
+
+        # Re-calculate the ncentroid for each class 
+        if self.trainer.current_epoch == 0: # after one forward pass
+            # print('labels in Calculate_centroid:',labels)
+            # print('labels in  Calculate_centroid shape', labels.shape)
+            
+            print("Recalculating Centroids...")
+            
+            # Initialize the dictionary with the normal class (from the file)
+            ncentroid_dict = {8: ncentroid} 
+            
+            # Initialize the variables to accumulate the sum of embeddings and the total count
+            embedding_sum = torch.zeros(self.net.embedding_dim).to(self.device)
+            count = 0
+
+            # Iterate over the labels and image features
+            for label, img_feat in zip(labels, image_features):
+
+                if label.item() != 8: # for abnormal frames
+                    if label.item() not in ncentroid_dict: # new key
+                        ncentroid_dict[label.item()] = None # inivialize the value (empty)
+
+                else: # for normal frames (calculate the average embedding)
+                    print('original img',img_feat.shape)
+
+                    img_feat = img_feat.view(-1, img_feat.shape[-1])
+                    print('img.view',img_feat.shape)
+                    print('labels shape',len(labels.squeeze()))
+                    img_feat = img_feat[: len(labels.squeeze())]
+                    print('sliced img',img_feat.shape)
+
+                    img_feat = img_feat.to(self.device)
+
+                    embedding_sum += img_feat.sum(dim=0)
+                    count += img_feat.shape[0]
+            
+            new_ncentroid = embedding_sum / count # normalize
+            print('new ncentroid shape:',new_ncentroid.shape)
     
+            # Update the ncentroid_dict with the newly calculated centroids
+            for label, img_feat in zip(labels, image_features):
+                if label.item() != 8:
+                    ncentroid_dict[label.item()] = new_ncentroid
+                    print('ncentroid_dict',ncentroid_dict)
+                    print('num of key-value pairs', len(ncentroid_dict))
+
+                # print('label:',label)
+                # ncentroid_dict[label.item()] = ncentroid
+    
+            # update the ncentroid.pt file with the dictionary
+            torch.save(ncentroid_dict, ncentroid_file)
+            print('Dictionary',ncentroid_dict)
+            print('Updated file',ncentroid)
+            # print('Updated file shape before ',ncentroid.shape)
+        
+            # ncentroid_squeezed = ncentroid.squeeze(0)
+            # ncentroid_reduced = ncentroid_squeezed.mean(dim=0)
+            # print('ncentroid_reduced shape',ncentroid_reduced.shape)
+            print('Updated file type ',type(ncentroid))
+
         return ncentroid
 
     def configure_optimizers(self):
