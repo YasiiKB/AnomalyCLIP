@@ -75,7 +75,6 @@ class SelectorModel(nn.Module):
         )
 
         # Re-centering transformation
-        print('labels in Selector_model', labels)
         text_features = text_features_except_normal - ncentroid  # num_classes - 1, 512
         image_features = image_features - ncentroid
 

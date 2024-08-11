@@ -112,7 +112,7 @@ class AnomalyCLIP(nn.Module):
         segment_size=1,
         test_mode=False,
     ):
-        # ncentroid = ncentroid.to(image_features.device)
+        ncentroid = ncentroid.to(image_features.device)
 
         # Test mode
         if test_mode:
@@ -141,7 +141,6 @@ class AnomalyCLIP(nn.Module):
             )
 
             # Re-center the features
-            print('labels in anomaly_clip.py',labels)
             image_features = image_features - ncentroid
 
             features = self.get_temporal_model_input(image_features, similarity)
