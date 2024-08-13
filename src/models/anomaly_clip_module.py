@@ -360,6 +360,7 @@ class AnomalyCLIPModule(LightningModule):
         image_features, labels, label, segment_size = batch # labels for each frame (torch.size = num of frames), label for the entire video (torch.size = 1)
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
+
         # if label[0].item() != 8:
             # print('Validation Label:',label) # Validation Labels: tensor([8], device='cuda:0')
             # print('Validation Label shape:',label.shape)  # Validation Label shape: torch.Size([1])
@@ -367,7 +368,6 @@ class AnomalyCLIPModule(LightningModule):
         # print('Validation Labels shape:',labels.shape) 
 
         # save_dir = Path(self.hparams.save_dir)
-
         # ncentroid_file = Path(save_dir / "ncentroid.pt")
         # if ncentroid_file.is_file():
         #     # file exists, load
@@ -525,7 +525,7 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
 
-        #self.ncentroid = self.calculate_centroids(batch, image_features, labels)
+        #self.ncentroid = self.calculate_centroids(batch, image_features, label, labels)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -746,9 +746,116 @@ class AnomalyCLIPModule(LightningModule):
         plt.savefig(fig_file)
         plt.close()
 
+    # def calculate_centroids(self, image_features, label, labels):
+    #     '''
+    #     This function loads/calculates the average normal embedding for each class (ncentroid)
+        
+    #     Args:
+    #         image_features (torch.Tensor): torch.Size([batch_size, feature_size])
+    #         label (torch.Tensor): torch.Size([1]) --> label for the entire video
+    #         labels (torch.Tensor): torch.Size([num of frames]) --> labels for each frame
+        
+    #     Returns:
+    #         ncentroid (torch.Tensor): torch.Size([feature_size])
+    #     '''
+    #     # Load the ncentroid file
+    #     save_dir = Path(self.hparams.save_dir)
+    #     ncentroid_file = Path(save_dir / "ncentroid.pt")
+    #     if ncentroid_file.is_file():
+    #         # file exists, load
+    #         ncentroid = torch.load(ncentroid_file)
+    #     else:
+    #         raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
+        
+    #     # Initialize the dictionary with the normal class (from the file)
+    #     ncentroid_dict = {8: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
+        
+    #     # Get the anomaly class label
+    #     video_class = label[0].item()
+    #     print('Class',video_class)
+
+    #     # Re-calculate the ncentroid for each anomaly class after one forward pass
+    #     # if self.trainer.current_epoch == 0 and self.ncentroid_loaded == False: # after one forward pass and for not loaded ncentroids
+    #     if video_class not in ncentroid_dict:
+    #     # if self.trainer.current_epoch == 0 and aclass not in ncentroid_dict:
+    #         print("Recalculating Centroids...")
+
+    #         # Initialize the variables to accumulate the sum of embeddings and the total count
+    #         embedding_sums = {}
+    #         counts = {}
+
+    #         # Iterate over the labels and image features
+    #         for label, img_feat in zip(labels, image_features):
+                
+    #             # Calculate embedding sums only for normal frames
+    #             if label == 8:
+
+    #                 # Initialize the dictionary key for label if it does not exist
+    #                 if label not in embedding_sums: # to avoid key error 
+    #                     embedding_sums[label] = torch.zeros(self.net.embedding_dim).to(self.device)
+    #                     counts[label] = 0
+
+    #                 img_feat = img_feat.view(-1, img_feat.shape[-1]).to(self.device)
+    #                 embedding_sums[label] += img_feat.sum(dim=0)
+    #                 counts[label] += img_feat.shape[0]
+    #                 # embedding_sums[label] += img_feat
+    #                 # counts[label] += 1
+                
+    #         # ncentroid_dict[video_class] = embedding_sums[label] / counts[label] # normalize
+    #         new_ncentroid_dict = {video_class: embedding_sums[label] / counts[label]} # normalize
+
+    #         #update the ncentroid_dict with the new ncentroids
+    #         ncentroid_dict.update(new_ncentroid_dict)
+        
+
+    #     ## save the updated centroids
+    #     # torch.save(ncentroid_dict, ncentroid_file)
+
+
+    #         # Calculate the new centroids
+    #         # for label in embedding_sums:
+    #         #     print('label for new centroids:',label)
+    #         #     ncentroid_dict[video_class] = embedding_sums[label] / counts[label] # normalize
+    #         #     # print(f'New ncentroid for label {label}:', ncentroid_dict[label])
+
+    #     print('New ncentroids:',ncentroid_dict)
+    #     print('Key-value pairs:',len(ncentroid_dict))
+
+    #         # TO DO : NEED TO SAVE THE UPDATED CENTROIDS
+            
+    #             # if label == self.labels:
+    #             #     label = label.item()
+    #             #     print('Label:',label)
+    #             #     print('ncentroid_dict[label]:',ncentroid_dict[label])
+    #             #     print('ncentroid_dict[label] shape:',ncentroid_dict[label].shape)
+    #             #     print('incoming label ',self.labels)
+        
+            
+    #         # Save the updated centroids
+    #         # torch.save(ncentroid_dict, ncentroid_file) # saving dict in the file --> TypeError: unsupported operand type(s) for -: 'Tensor' and 'dict'
+    
+    #     # # Return the updated ncentroid for the specific class (label)
+    #     # centroids = []
+    #     # for label in labels:
+    #     #     # print('Label:', label.item())
+    #     #     centroids.append(ncentroid_dict[label.item()])
+    #     #     # print('Centroids:', centroids)
+
+    #     # # Convert the list of centroids to a tensor
+    #     # returned_ncentroids = torch.FloatTensor(centroids)
+
+    #     # print('Returned ncentroids:', returned_ncentroids)
+    #     # print('Returned ncentroids shape:', returned_ncentroids.shape)
+
+    #     # return ncentroid_dict[label]
+    # # return ncentroid_file
+    #     # Return the updated ncentroid for the specific class (label)
+    #     if video_class in ncentroid_dict:
+    #         return ncentroid_dict[video_class]
+
     def calculate_centroids(self, image_features, label, labels):
         '''
-        This function loads/calculates the average normal embedding for each class (ncentroid)
+        This function loads/calculates the average normal embedding for each class (ncentroid).
         
         Args:
             image_features (torch.Tensor): torch.Size([batch_size, feature_size])
@@ -760,83 +867,65 @@ class AnomalyCLIPModule(LightningModule):
         '''
         # Load the ncentroid file
         save_dir = Path(self.hparams.save_dir)
+        ncentroid_file_dict = Path(save_dir / "ncentroid_dict.pt")
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-        if ncentroid_file.is_file():
-            # file exists, load
+
+        if ncentroid_file_dict.is_file():
+            # dictionary file exists, load
+            ncentroid_dict = torch.load(ncentroid_file_dict)
+            print("Loaded ncentroid_dict!")
+
+        elif ncentroid_file.is_file():
+            # dictionary file does not exist, initialize it by loading the ncentroid file
             ncentroid = torch.load(ncentroid_file)
+            ncentroid_dict = {8: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
+            print("Loaded ncentroid! Initializing ncentroid_dict...")
         else:
-            raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
+            raise FileNotFoundError(f"ncentroid file or dictionary not found")
         
-        # Initialize the dictionary with the normal class (from the file)
-        ncentroid_dict = {8: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
+        # # Initialize the dictionary with the normal class (from the file)
+        # print("Starting ncentroid_dict")
+        # ncentroid_dict = {8: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
+        print('Len of Inital ncentroid_dict', len(ncentroid_dict))
         
         # Get the anomaly class label
         video_class = label[0].item()
-        print('Class',video_class)
-
-        # Re-calculate the ncentroid for each anomaly class after one forward pass
-        # if self.trainer.current_epoch == 0 and self.ncentroid_loaded == False: # after one forward pass and for not loaded ncentroids
+        print('Class:', video_class)
+    
+        # Check if the video class centroid needs to be recalculated
         if video_class not in ncentroid_dict:
-        # if self.trainer.current_epoch == 0 and aclass not in ncentroid_dict:
             print("Recalculating Centroids...")
 
-            # Initialize the variables to accumulate the sum of embeddings and the total count
-            embedding_sums = {}
-            counts = {}
+            # Initialize variables to accumulate the sum of embeddings and the total count
+            embedding_sums = torch.zeros(self.net.embedding_dim).to(self.device)
+            counts = 0
 
-            # Iterate over the labels and image features
-            for label, img_feat in zip(labels, image_features):
-                
-                # Only consider the normal frames
-                if label == 8:
+            # Iterate over the labels and image features to accumulate sums for the normal label (8)
+            for lbl, img_feat in zip(labels, image_features):
+                if lbl.item() == 8:
                     img_feat = img_feat.view(-1, img_feat.shape[-1]).to(self.device)
-                    if label not in embedding_sums:
-                        embedding_sums[label] = torch.zeros(self.net.embedding_dim).to(self.device)
-                        counts[label] = 0
+                    embedding_sums += img_feat.sum(dim=0)
+                    counts += img_feat.shape[0]
+
+            # Calculate the new centroid for the video class
+            if counts > 0: # to avoid division by zero (NaN)
+                new_centroid = embedding_sums / counts
+                ncentroid_dict[video_class] = new_centroid
+                # print('New Centroid Calculated:', new_centroid)
         
-                    embedding_sums[label] += img_feat.sum(dim=0)
-                    counts[label] += img_feat.shape[0]
-    
-            # Calculate the new centroids
-            for label in embedding_sums:
-                print('label for new centroids:',label)
-                ncentroid_dict[video_class] = embedding_sums[label] / counts[label] # normalize
-                # print(f'New ncentroid for label {label}:', ncentroid_dict[label])
+        # Save the updated centroids
+        torch.save(ncentroid_dict, ncentroid_file_dict)
 
-            print('New ncentroids:',ncentroid_dict)
-            print('Key-value pairs:',len(ncentroid_dict))
+        print('Updated ncentroid_dict', len(ncentroid_dict))
+        # print(f'Returning ncentroid for {video_class}: {ncentroid_dict[video_class]}')
 
-            # TO DO : NEED TO SAVE THE UPDATED CENTROIDS
-            
-                # if label == self.labels:
-                #     label = label.item()
-                #     print('Label:',label)
-                #     print('ncentroid_dict[label]:',ncentroid_dict[label])
-                #     print('ncentroid_dict[label] shape:',ncentroid_dict[label].shape)
-                #     print('incoming label ',self.labels)
-        
-            
-            # Save the updated centroids
-            # torch.save(ncentroid_dict, ncentroid_file) # saving dict in the file --> TypeError: unsupported operand type(s) for -: 'Tensor' and 'dict'
-    
-        # # Return the updated ncentroid for the specific class (label)
-        # centroids = []
-        # for label in labels:
-        #     # print('Label:', label.item())
-        #     centroids.append(ncentroid_dict[label.item()])
-        #     # print('Centroids:', centroids)
-
-        # # Convert the list of centroids to a tensor
-        # returned_ncentroids = torch.FloatTensor(centroids)
-
-        # print('Returned ncentroids:', returned_ncentroids)
-        # print('Returned ncentroids shape:', returned_ncentroids.shape)
-
-        # return ncentroid_dict[label]
-    # return ncentroid_file
-        # Return the updated ncentroid for the specific class (label)
-        if video_class in ncentroid_dict:
-            return ncentroid_dict[video_class]
+        # Return the ncentroid for the specified label (video class)
+        if video_class == label[0].item():
+            try:
+                return ncentroid_dict[video_class]
+            except KeyError:
+                print(f'ncentroid for {video_class} not found! Returning general ncentroid...')
+                return ncentroid_dict[8]
     
 
     def configure_optimizers(self):
