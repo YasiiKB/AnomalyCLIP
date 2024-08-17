@@ -110,7 +110,6 @@ class AnomalyCLIPModule(LightningModule):
             task="multiclass", num_classes=self.hparams.num_classes, average=None
         )
 
-        self.ncentroid_loaded = False
         self.labels = []
         self.abnormal_scores = []
         self.class_probs = []
@@ -137,7 +136,6 @@ class AnomalyCLIPModule(LightningModule):
         
         Output:
             ncentroid (torch.Tensor): torch.Size([512]) = feature_size
-            Average of all the elements in ncenroid = 0.0085
         '''
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
@@ -145,8 +143,6 @@ class AnomalyCLIPModule(LightningModule):
         save_dir.mkdir(parents=True, exist_ok=True)
 
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-
-        # self.centroid_loaded = False
 
         if ncentroid_file.is_file():
             # file exists, load
@@ -169,18 +165,11 @@ class AnomalyCLIPModule(LightningModule):
 
                     # extract features and labels in each batch
                     for nimage_features, nlabels, _, _ in loader:
-                        # print('original nimage_features shape:',nimage_features.shape)
-                
+                        
                         # collaps all dimensions except the last one
                         nimage_features = nimage_features.view(-1, nimage_features.shape[-1])
-                        # print('Collapsed nimage_features shape:',nimage_features.shape)
-                        
-                        # print('nlabels shape',len(nlabels.squeeze()))
-
                         # slice the features to match the number of labels
                         nimage_features = nimage_features[: len(nlabels.squeeze())]
-                        # print('Sliced nimage_features shape:',nimage_features.shape)
-
                         # move to device
                         nimage_features = nimage_features.to(self.device)
 
@@ -203,10 +192,9 @@ class AnomalyCLIPModule(LightningModule):
                     
                 # Compute and save the average embedding
                 self.ncentroid = embedding_sum / count  # normalize 
-                # print('ncentroid shape:',self.ncentroid.shape) 
                 torch.save(self.ncentroid, ncentroid_file)
             
-            print('Start Training...')
+            # print('Start Training...')
 
 
 
@@ -361,12 +349,6 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
 
-        # if label[0].item() != 8:
-            # print('Validation Label:',label) # Validation Labels: tensor([8], device='cuda:0')
-            # print('Validation Label shape:',label.shape)  # Validation Label shape: torch.Size([1])
-        # print('Validation Labels:',labels)
-        # print('Validation Labels shape:',labels.shape) 
-
         # save_dir = Path(self.hparams.save_dir)
         # ncentroid_file = Path(save_dir / "ncentroid.pt")
         # if ncentroid_file.is_file():
@@ -375,9 +357,7 @@ class AnomalyCLIPModule(LightningModule):
         # else:
         #     raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
 
-        # ncentroid_file = self.calculate_centroids(image_features, label, labels) #why not give it label?
-        # self.ncentroid = torch.load(ncentroid_file)
-
+        # Multiple ncentroids
         self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False)
 
         # Forward pass
@@ -525,8 +505,8 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
 
-        # print('Test Label:',label) # Test Labels: tensor([8], device='cuda:0')
-        # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=True)
+        # Multiple ncentroids
+        self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=True)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -756,15 +736,31 @@ class AnomalyCLIPModule(LightningModule):
             image_features (torch.Tensor): torch.Size([batch_size, feature_size])
             label (torch.Tensor): torch.Size([1]) --> label for the entire video
             labels (torch.Tensor): torch.Size([num of frames]) --> labels for each frame
-        
-        Returns:
-            ncentroid (torch.Tensor): torch.Size([feature_size])
-        '''
-        # Load the ncentroid files
-        save_dir = Path(self.hparams.save_dir)
-        ncentroid_file_dict = Path(save_dir / "ncentroid_dict.pt")
-        ncentroid_file = Path(save_dir / "ncentroid.pt")
+            test_mode (bool): True if in test mode, False if in validation mode
 
+        Returns:
+            ncentroid_dict[video_class] (torch.Tensor): torch.Size([feature_size])
+        '''
+
+        # Normal index
+        normal_idx = self.trainer.datamodule.hparams.normal_id
+
+        # Paths for saving/loading ncentroids
+        if test_mode == False: # Validation
+            save_dir = Path(self.hparams.save_dir)
+            ncentroid_file_dict = Path(save_dir / "ncentroid_dict.pt")
+            ncentroid_file = Path(save_dir / "ncentroid.pt")
+        else: # Test
+            ckpt_path = Path(self.trainer.ckpt_path)
+            save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
+            save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # changed path
+            if not save_dir.is_dir():
+                save_dir.mkdir(parents=True, exist_ok=True)
+    
+            ncentroid_file = Path(save_dir / "ncentroid.pt")
+            ncentroid_file_dict = Path(save_dir / "ncentroid_dict.pt")
+
+        # Load the ncentroid dictionary
         if ncentroid_file_dict.is_file():
             # dictionary file exists, load
             ncentroid_dict = torch.load(ncentroid_file_dict)
@@ -773,20 +769,48 @@ class AnomalyCLIPModule(LightningModule):
             # keys_list = sorted(ncentroid_dict.keys())
             # print(keys_list)
 
-        elif ncentroid_file.is_file() and test_mode == False:
+        # Load the ncentroid file
+        elif ncentroid_file.is_file():
             # dictionary file does not exist, initialize it by loading the ncentroid file
             ncentroid = torch.load(ncentroid_file)
-            ncentroid_dict = {8: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
-            print("Loaded ncentroid! Initializing ncentroid_dict...")
+            ncentroid_dict = {normal_idx: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset            print("Loaded ncentroid! Initializing ncentroid_dict...")
 
-        elif test_mode == True: # is this necessary?
-            return
+        # in Test mode, if ncentroid file is not found, calculate it from scratch
+        elif test_mode == True: 
+            with torch.no_grad():
+                loader = self.trainer.datamodule.train_dataloader_test_mode()
+
+                # Initialize variables to accumulate the sum of embeddings and the total count
+                embedding_sum = torch.zeros(self.net.embedding_dim).to(self.device)
+                count = 0
+
+                if self.trainer.datamodule.hparams.load_from_features:
+                    for nimage_features, nlabels, _, _ in loader:
+                        nimage_features = nimage_features.view(-1, nimage_features.shape[-1])
+                        nimage_features = nimage_features[: len(nlabels.squeeze())]
+                        nimage_features = nimage_features.to(self.device)
+                        embedding_sum += nimage_features.sum(dim=0)
+                        count += nimage_features.shape[0]
+                else:
+                    for nimages, nlabels, _, _ in loader:
+                        b, t, c, h, w = nimages.size()
+                        nimages = nimages.view(-1, c, h, w)
+                        nimages = nimages[: len(nlabels.squeeze())]
+                        nimages = nimages.to(self.device)
+                        nimage_features = self.net.image_encoder(nimages)
+                        embedding_sum += nimage_features.sum(dim=0)
+                        count += nimage_features.shape[0]
+
+            # Compute and save the average embedding
+            self.ncentroid = embedding_sum / count
+            torch.save(self.ncentroid, ncentroid_file)
+
+        # in Validation mode, raise error if ncentroid file is not found
         else:
             raise FileNotFoundError(f"ncentroid file or dictionary not found")
         
         # Get the anomaly class label
         video_class = label[0].item()
-        # print('Class:', video_class)
     
         # Check if the video class centroid needs to be recalculated
         if video_class not in ncentroid_dict:
@@ -799,7 +823,7 @@ class AnomalyCLIPModule(LightningModule):
 
             # Iterate over the labels and image features to accumulate sums for the normal label (8)
             for lbl, img_feat in zip(labels, image_features):
-                if lbl.item() == 8:
+                if lbl.item() == normal_idx:
                     img_feat = img_feat.view(-1, img_feat.shape[-1]).to(self.device)
                     embedding_sums += img_feat.sum(dim=0)
                     counts += img_feat.shape[0]
@@ -813,7 +837,6 @@ class AnomalyCLIPModule(LightningModule):
             # Save the updated centroids
             torch.save(ncentroid_dict, ncentroid_file_dict)
             
-
         # print('Updated ncentroid_dict', len(ncentroid_dict))
         
         # Return the ncentroid for the specified label (video class)
