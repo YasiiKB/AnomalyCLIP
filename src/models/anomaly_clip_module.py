@@ -349,16 +349,16 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
 
-        # save_dir = Path(self.hparams.save_dir)
-        # ncentroid_file = Path(save_dir / "ncentroid.pt")
-        # if ncentroid_file.is_file():
-        #     # file exists, load
-        #     self.ncentroid = torch.load(ncentroid_file)
-        # else:
-        #     raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
+        save_dir = Path(self.hparams.save_dir)
+        ncentroid_file = Path(save_dir / "ncentroid.pt")
+        if ncentroid_file.is_file():
+            # file exists, load
+            self.ncentroid = torch.load(ncentroid_file)
+        else:
+            raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
 
         # Multiple ncentroids
-        self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False)
+        # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -461,7 +461,7 @@ class AnomalyCLIPModule(LightningModule):
     def on_test_start(self):
         ckpt_path = Path(self.trainer.ckpt_path)
         save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
-        save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # changed path
+        save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # new save_dir for test results
         if not save_dir.is_dir():
             save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -470,6 +470,8 @@ class AnomalyCLIPModule(LightningModule):
         if ncentroid_file.is_file():
             # file exists, load
             self.ncentroid = torch.load(ncentroid_file)
+
+        # Recalculating the centroids on TRAINING data (not test) just to have it in the new save_dir
         else:
             with torch.no_grad():
                 loader = self.trainer.datamodule.train_dataloader_test_mode()
@@ -506,7 +508,7 @@ class AnomalyCLIPModule(LightningModule):
         labels = labels.squeeze(0).to(self.device)
 
         # Multiple ncentroids
-        self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=True)
+        # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=True)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
@@ -740,6 +742,15 @@ class AnomalyCLIPModule(LightningModule):
 
         Returns:
             ncentroid_dict[video_class] (torch.Tensor): torch.Size([feature_size])
+
+        RESULTS:
+            This implementation of ncentroid calculation is reducing model performance! 
+            Because: 
+                1. it uses frame-level labels to calculate the ncentroid for each video class which are not accurate.
+                2. it is called in each validation step which doesn't influence the model's weights.
+        SOLUTIONS:
+            1. To find actual normal/abnormal frames, I need to use the model's prediction. (IDEA: after a few warm-up epochs, on a pre-trained model)
+            2. To influence the model's weights, I need to call this function in the training loop (training_step) and update the ncentroid_dict after each epoch.
         '''
 
         # Normal index
@@ -753,7 +764,7 @@ class AnomalyCLIPModule(LightningModule):
         else: # Test
             ckpt_path = Path(self.trainer.ckpt_path)
             save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
-            save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # changed path
+            save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) 
             if not save_dir.is_dir():
                 save_dir.mkdir(parents=True, exist_ok=True)
     
@@ -773,7 +784,7 @@ class AnomalyCLIPModule(LightningModule):
         elif ncentroid_file.is_file():
             # dictionary file does not exist, initialize it by loading the ncentroid file
             ncentroid = torch.load(ncentroid_file)
-            ncentroid_dict = {normal_idx: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset            print("Loaded ncentroid! Initializing ncentroid_dict...")
+            ncentroid_dict = {normal_idx: ncentroid} # 8 for ShanghaiTech dataset, 7 for UCF-Crime dataset, 4 for xd dataset
 
         # in Test mode, if ncentroid file is not found, calculate it from scratch
         elif test_mode == True: 
@@ -821,7 +832,7 @@ class AnomalyCLIPModule(LightningModule):
             embedding_sums = torch.zeros(self.net.embedding_dim).to(self.device)
             counts = 0
 
-            # Iterate over the labels and image features to accumulate sums for the normal label (8)
+            # Iterate over the labels and image features to accumulate sums for the normal label
             for lbl, img_feat in zip(labels, image_features):
                 if lbl.item() == normal_idx:
                     img_feat = img_feat.view(-1, img_feat.shape[-1]).to(self.device)
@@ -832,13 +843,10 @@ class AnomalyCLIPModule(LightningModule):
             if counts > 0: # to avoid division by zero (NaN)
                 new_centroid = embedding_sums / counts
                 ncentroid_dict[video_class] = new_centroid
-                # print('New Centroid Calculated:', new_centroid)
         
             # Save the updated centroids
             torch.save(ncentroid_dict, ncentroid_file_dict)
-            
-        # print('Updated ncentroid_dict', len(ncentroid_dict))
-        
+                    
         # Return the ncentroid for the specified label (video class)
         if video_class == label[0].item():
             try:
@@ -846,7 +854,7 @@ class AnomalyCLIPModule(LightningModule):
                 return ncentroid_dict[video_class]
             except KeyError:
                 # print(f'ncentroid for {video_class} not found! Returning general ncentroid...')
-                return ncentroid_dict[8]
+                return ncentroid_dict[normal_idx]
     
 
     def configure_optimizers(self):
