@@ -114,6 +114,7 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores = []
         self.class_probs = []
     
+    # forward pass of this model which is the same as in anomaly_clip.py
     def forward(
         self,
         image_features: torch.Tensor,
@@ -190,8 +191,10 @@ class AnomalyCLIPModule(LightningModule):
                         embedding_sum += nimage_features.sum(dim=0)
                         count += nimage_features.shape[0]
                     
-                # Compute and save the average embedding
-                self.ncentroid = embedding_sum / count  # normalize 
+                # Normalize the average embedding  
+                self.ncentroid = embedding_sum / count
+
+                # Save the ncentroid  
                 torch.save(self.ncentroid, ncentroid_file)
             
             # print('Start Training...')
@@ -202,13 +205,35 @@ class AnomalyCLIPModule(LightningModule):
         '''
         This function is used to compute the forward pass of the model
         Using AnomalyCLIP model from anomaly_clip.py 
+
+        Args:
+            batch (Any): batch of data from dataloader: batch = (image_features, label)
+
+        Returns:
+            logits (torch.Tensor): torch.Size([batch_size batch_size (64)* num_segments (32) * seg_length (16) , num_classes (17 for ShanghaiTech, 14 for UCF_Crime)])
+                                 - output of SelectorModel (named 'similarity' in training_step)
+
+            logits_topk (torch.Tensor): torch.Size([batch_size, num_classes])
+
+            labels (torch.Tensor): torch.Size([batch_size]) -- do not go through the model but are used to compute the loss
+
+            scores (torch.Tensor): torch.Size([batch_size, num_segments, seg_length])
+                                 - btw 0 and 1 scores (output of TemporalModel after going into ClassificationHead)
+
+            idx_topk_abn (torch.Tensor): torch.Size([batch_size, num_segments])
+
+            idx_topk_nor (torch.Tensor): torch.Size([batch_size, num_segments])
+            
+            idx_bottomk_abn (torch.Tensor): torch.Size([batch_size, num_segments])
+            
+            ? image_features (torch.Tensor): torch.Size([batch_size, channels, feature_size]) -- do not go through the model but are used in training_step
         '''
-        nbatch, abatch = batch
+        # Load from dataloader in Train_mode (not Test_mode) --> batch = (image_features, label)
+        nbatch, abatch = batch # ground truth (devide into two parts: normal and abnormal)
         nimage_features, nlabel = nbatch
         aimage_features, alabel = abatch
-        image_features = torch.cat((aimage_features, nimage_features), 0)
-        labels = torch.cat((alabel, nlabel), 0)
-
+        image_features = torch.cat((aimage_features, nimage_features), 0) # size = (batch_size (64), channels (1), feature_size (512 , 512))
+        labels = torch.cat((alabel, nlabel), 0) # size = (batch_size)
         
         (
             logits,
@@ -221,7 +246,9 @@ class AnomalyCLIPModule(LightningModule):
             image_features,
             labels,
             ncentroid=self.ncentroid,
-        )  # forward
+        )  # forward from anomaly_clip.py 
+
+        # TO DO: use corrected version of self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False) 
 
         return (
             logits,
@@ -235,9 +262,27 @@ class AnomalyCLIPModule(LightningModule):
 
     def training_step(self, batch: Any, batch_idx: int):
         '''
-        This function performs the feedforward pass of the model (from model_step) and computes and logs the loss
+        This is where traning happens. This function performs the feedforward pass of the model (from model_step) 
+        then computes and logs different losses 
+        
+        Args:
+            batch (Any): batch of data from dataloader: batch = (image_features, label)
+            batch_idx (int): index of the batch in the dataloader
+        
+        Logs: 
+            train_loss(loss)
+            dir_abn_loss(ldir_abn)
+            dir_nor_loss(ldir_nor)
+            topk_abn_loss(ltopk_abn)
+            bottomk_abn_loss(lbottomk_abn)
+            topk_nor_loss(ltopk_nor)
+            smooth_loss(lsmooth)
+            sparse_loss(lsparse)
+
+        Returns:
+            {"loss": loss} (dict): loss value for backpropagation
         '''
-        # Forward pass
+        # Forward pass from model_step (anomaly_clip.py)
         (
             similarity,
             similarity_topk,
@@ -247,6 +292,16 @@ class AnomalyCLIPModule(LightningModule):
             idx_topk_nor,
             idx_bottomk_abn,
         ) = self.model_step(batch)
+
+        # # save scores for investigation! 
+        # if self.current_epoch == 0 or self.current_epoch%2 == 0:
+        #     directory = 'text_files'
+        #     filename = f'{directory}/Training_epoch_scores{self.current_epoch}.txt'
+        #     with open(filename, 'w') as f:
+        #         f.write(f'batch_idx: {batch_idx}\n')
+        #         f.write(f"labels: {labels}\n")
+        #         f.write(f"Scores: {scores}\n")
+        #         f.write(f"Scores shape: {scores.shape}\n")
 
         # Compute loss
         (
@@ -342,9 +397,10 @@ class AnomalyCLIPModule(LightningModule):
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
-        This fuction loads the batch and ncentroid, performs the forward pass (from model_step)
+        This fuction loads the batch and ncentroid, performs the forward pass (from init which is the same as anomaly_clip.py in Test_mode)
         It computes conditional probabilities (softmax_similarity) and joint probabilities (class_probs) which is used in on_validation_epoch_end
         '''
+        # Loading data in Test mode --> batch = (image_features, labels, label, segment_size)
         image_features, labels, label, segment_size = batch # labels for each frame (torch.size = num of frames), label for the entire video (torch.size = 1)
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
@@ -356,11 +412,11 @@ class AnomalyCLIPModule(LightningModule):
             self.ncentroid = torch.load(ncentroid_file)
         else:
             raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
-
+        
         # Multiple ncentroids
         # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False)
 
-        # Forward pass
+        # Forward pass from __init__ which is the same as anomaly_clip.py in Test_mode
         similarity, abnormal_scores = self.forward(
             image_features,
             labels,
@@ -506,9 +562,6 @@ class AnomalyCLIPModule(LightningModule):
         image_features, labels, label, segment_size = batch
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
-
-        # Multiple ncentroids
-        # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=True)
 
         # Forward pass
         similarity, abnormal_scores = self.forward(

@@ -78,6 +78,11 @@ target/
 .ipynb_checkpoints
 test.ipynb
 
+
+# Text
+text_files/
+
+
 # IPython
 profile_default/
 ipython_config.py
