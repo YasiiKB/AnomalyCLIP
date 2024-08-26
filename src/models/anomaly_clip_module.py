@@ -246,15 +246,18 @@ class AnomalyCLIPModule(LightningModule):
             centroids = torch.load(centroids_file)
             for label in labels:
                 if label.item() in centroids:
-                    try: 
-                        print(f'Returning ncentroid for {label.item()}')
-                        ncentroid = centroids[label.item()]
-                    except KeyError: 
-                        print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
-                        ncentroid = centroids[normal_idx]
+                    # print(f'Returning ncentroid for {label.item()}')
+                    ncentroid = centroids[label.item()]
+                else: 
+                    print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
+                    ncentroid = centroids[normal_idx]
 
         elif ncentroid_file.is_file():
             ncentroid = torch.load(ncentroid_file)
+        
+        else: # never happens because ncentroid is calculated/loaded automatically in on_train_start
+            raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
+
 
         # forward from anomaly_clip.py 
         (
@@ -479,22 +482,44 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
 
-        save_dir = Path(self.hparams.save_dir)
-        ncentroid_file = Path(save_dir / "ncentroid.pt")
-        if ncentroid_file.is_file():
-            # file exists, load
-            self.ncentroid = torch.load(ncentroid_file) #TO DO: need to load the new ones 
-        else:
-            raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
+        # save_dir = Path(self.hparams.save_dir)
+        # ncentroid_file = Path(save_dir / "ncentroid.pt")
+        # if ncentroid_file.is_file():
+        #     # file exists, load
+        #     self.ncentroid = torch.load(ncentroid_file) #TO DO: need to load the new ones 
+        # else:
+        #     raise FileNotFoundError(f"ncentroid file {ncentroid_file} not found")
         
-        # Multiple ncentroids
-        # self.ncentroid = self.calculate_centroids(image_features, label, labels, test_mode=False)
+        # Normal index
+        normal_idx = self.trainer.datamodule.hparams.normal_id
+
+        # Load centroids  #?
+        save_dir = Path(self.hparams.save_dir)
+        centroids_file = Path(save_dir / "centroids.pt")
+        ncentroid_file = Path(save_dir / "ncentroid.pt")
+        
+        if centroids_file.is_file():
+            # file exists, load
+            centroids = torch.load(centroids_file)
+            # for label in labels
+            if label.item() in centroids:
+                # print(f'Returning ncentroid for {label.item()}')
+                ncentroid = centroids[label.item()] 
+            else:
+                print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
+                ncentroid = centroids[normal_idx]
+
+        elif ncentroid_file.is_file():
+            ncentroid = torch.load(ncentroid_file)
+
+        else: 
+            raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
 
         # Forward pass from __init__ which is the same as anomaly_clip.py in Test_mode
         similarity, abnormal_scores = self.forward(
             image_features,
             labels,
-            self.ncentroid,
+            ncentroid,
             segment_size,
             test_mode=True,
         )
@@ -589,17 +614,29 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores.clear()
 
     def on_test_start(self):
-        ckpt_path = Path(self.trainer.ckpt_path)
-        save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
-        save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # new save_dir for test results
-        if not save_dir.is_dir():
-            save_dir.mkdir(parents=True, exist_ok=True)
+        # ckpt_path = Path(self.trainer.ckpt_path)
+        # save_dir = os.path.normpath(ckpt_path.parent).split(os.path.sep)[-1]
+        # save_dir = Path(os.path.join("src/app/logs/train/runs", str(save_dir))) # new save_dir for test results
+        # if not save_dir.is_dir():
+        #     save_dir.mkdir(parents=True, exist_ok=True)
 
-        ncentroid_file = Path(save_dir / "ncentroid.pt")  #? # no need to load the new centroids for test?
+        # ncentroid_file = Path(save_dir / "ncentroid.pt")  #? # no need to load the new centroids for test?
 
-        if ncentroid_file.is_file():
+        # if ncentroid_file.is_file():
+        #     # file exists, load
+        #     self.ncentroid = torch.load(ncentroid_file)
+        
+        # Load centroids  #?
+        save_dir = Path(self.hparams.save_dir)
+        centroids_file = Path(save_dir / "centroids.pt")
+        ncentroid_file = Path(save_dir / "ncentroid.pt")
+        
+        if centroids_file.is_file():
             # file exists, load
-            self.ncentroid = torch.load(ncentroid_file)
+            centroids = torch.load(centroids_file)
+
+        elif ncentroid_file.is_file():
+            ncentroid = torch.load(ncentroid_file)
 
         # Recalculating the centroids on TRAINING data (not test) just to have it in the new save_dir
         else:
@@ -628,8 +665,8 @@ class AnomalyCLIPModule(LightningModule):
                         count += nimage_features.shape[0]
 
             # Compute and save the average embedding
-            self.ncentroid = embedding_sum / count
-            torch.save(self.ncentroid, ncentroid_file)
+            ncentroid = embedding_sum / count
+            torch.save(ncentroid, ncentroid_file)
 
     @rank_zero_only 
     def test_step(self, batch: Any, batch_idx: int):
@@ -637,11 +674,36 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
 
+        # Normal index
+        normal_idx = self.trainer.datamodule.hparams.normal_id
+
+        # Load centroids  #?
+        save_dir = Path(self.hparams.save_dir)
+        centroids_file = Path(save_dir / "centroids.pt")
+        ncentroid_file = Path(save_dir / "ncentroid.pt")
+        
+        if centroids_file.is_file():
+            # file exists, load
+            centroids = torch.load(centroids_file)
+            for label in labels:
+                if label.item() in centroids:
+                    # print(f'Returning ncentroid for {label.item()}')
+                    ncentroid = centroids[label.item()]
+                else: 
+                    print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
+                    ncentroid = centroids[normal_idx]
+
+        elif ncentroid_file.is_file():
+            ncentroid = torch.load(ncentroid_file)
+        
+        else: # never happens because ncentroid is calculated/loaded automatically in on_train_start
+            raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
+
         # Forward pass
         similarity, abnormal_scores = self.forward(
             image_features,
             labels,
-            self.ncentroid,
+            ncentroid,
             segment_size,
             test_mode=True,
         )
