@@ -144,7 +144,7 @@ class AnomalyCLIPModule(LightningModule):
         save_dir.mkdir(parents=True, exist_ok=True)
 
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-
+        
         if ncentroid_file.is_file():
             # file exists, load
             self.ncentroid = torch.load(ncentroid_file)
@@ -247,17 +247,16 @@ class AnomalyCLIPModule(LightningModule):
             for label in labels:
                 if label.item() in centroids:
                     # print(f'Returning ncentroid for {label.item()}')
-                    ncentroid = centroids[label.item()]
+                    self.ncentroid = centroids[label.item()]
                 else: 
                     print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
-                    ncentroid = centroids[normal_idx]
+                    self.ncentroid = centroids[normal_idx]
 
         elif ncentroid_file.is_file():
-            ncentroid = torch.load(ncentroid_file)
+            self.ncentroid = torch.load(ncentroid_file)
         
         else: # never happens because ncentroid is calculated/loaded automatically in on_train_start
             raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
-
 
         # forward from anomaly_clip.py 
         (
@@ -270,7 +269,7 @@ class AnomalyCLIPModule(LightningModule):
         ) = self.forward(
             image_features,
             labels,
-            ncentroid,
+            ncentroid=self.ncentroid,
         )  
 
         
@@ -319,14 +318,27 @@ class AnomalyCLIPModule(LightningModule):
             idx_bottomk_abn,
             image_features
         ) = self.model_step(batch)
+        
+        # TO DO: 
+            # 1) Updating (not Overwriting) centroids file
+                # 1. load the centroids
+                # 2. calculate the centroids for each label in the current batch 
+                # 3. Update/Add the centroids for these labels in centroids
+                # 4. Do NOT change the centroids for labels that do not exist in the current batch
+            
+            # 2) Initialize the centroids for each class with the original ncentroid
 
+            # 3) Calculate the distance btw the centroid of each label are from each other
+            
+            # 4) Load checkpoints and train for longer epochs
+        
         # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
 
         # Threshold for normality
-        threshold = 0.4
+        threshold = 0.7
         print(f"Threshold: {threshold}")
-
+    
         # Get Dimensions
         batch_size = self.trainer.datamodule.hparams.batch_size # 64
         num_segments = self.trainer.datamodule.hparams.num_segments # 32
@@ -350,16 +362,17 @@ class AnomalyCLIPModule(LightningModule):
             image_feature_for_label = image_features[i]
             
             # Extract the score for the current label
-            score_for_label = new_scores[i]  #?
+            score_for_label = new_scores[i]  
 
             # Check if the score is less than threshold (consider it normal)
             if score_for_label.mean() <= threshold:
                 if label.item() not in centroids:
                     centroids[label.item()] = {
                         # initialize with the original ncentroid
-                        "embedding_sum": torch.zeros_like(image_feature_for_label),
+                        # "embedding_sum": torch.zeros_like(image_feature_for_label),
                         # "embedding_sum": torch.zeros(self.net.embedding_dim).to(self.device),
-                        "count": 0 #1
+                        "embedding_sum": torch.clone(self.ncentroid),
+                        "count": 1
                     }
                 centroids[label.item()]["embedding_sum"] += image_feature_for_label
                 centroids[label.item()]["count"] += 1
@@ -377,8 +390,8 @@ class AnomalyCLIPModule(LightningModule):
         torch.save(centroids, centroids_file)
         
         # for test
-        # centroid_test_file = Path(save_dir / f"centroids_{self.current_epoch}_{batch_idx}.pt")
-        # torch.save(centroids, centroid_test_file)
+        centroid_test_file = Path(save_dir / f"new_centroids_{self.current_epoch}.pt")
+        torch.save(centroids, centroid_test_file)
 
         # Compute loss
         (
@@ -504,13 +517,13 @@ class AnomalyCLIPModule(LightningModule):
             # for label in labels
             if label.item() in centroids:
                 # print(f'Returning ncentroid for {label.item()}')
-                ncentroid = centroids[label.item()] 
+                self.ncentroid = centroids[label.item()] 
             else:
                 print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
-                ncentroid = centroids[normal_idx]
+                self.ncentroid = centroids[normal_idx]
 
         elif ncentroid_file.is_file():
-            ncentroid = torch.load(ncentroid_file)
+            self.ncentroid = torch.load(ncentroid_file)
 
         else: 
             raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
@@ -519,7 +532,7 @@ class AnomalyCLIPModule(LightningModule):
         similarity, abnormal_scores = self.forward(
             image_features,
             labels,
-            ncentroid,
+            self.ncentroid,
             segment_size,
             test_mode=True,
         )
@@ -631,12 +644,12 @@ class AnomalyCLIPModule(LightningModule):
         centroids_file = Path(save_dir / "centroids.pt")
         ncentroid_file = Path(save_dir / "ncentroid.pt")
         
-        if centroids_file.is_file():
+        if centroids_file.is_file(): #useless! 
             # file exists, load
             centroids = torch.load(centroids_file)
 
         elif ncentroid_file.is_file():
-            ncentroid = torch.load(ncentroid_file)
+            self.ncentroid = torch.load(ncentroid_file)
 
         # Recalculating the centroids on TRAINING data (not test) just to have it in the new save_dir
         else:
@@ -688,13 +701,13 @@ class AnomalyCLIPModule(LightningModule):
             for label in labels:
                 if label.item() in centroids:
                     # print(f'Returning ncentroid for {label.item()}')
-                    ncentroid = centroids[label.item()]
+                    self.ncentroid = centroids[label.item()]
                 else: 
                     print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
-                    ncentroid = centroids[normal_idx]
+                    self.ncentroid = centroids[normal_idx]
 
         elif ncentroid_file.is_file():
-            ncentroid = torch.load(ncentroid_file)
+            self.ncentroid = torch.load(ncentroid_file)
         
         else: # never happens because ncentroid is calculated/loaded automatically in on_train_start
             raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
@@ -703,7 +716,7 @@ class AnomalyCLIPModule(LightningModule):
         similarity, abnormal_scores = self.forward(
             image_features,
             labels,
-            ncentroid,
+            self.ncentroid,
             segment_size,
             test_mode=True,
         )
