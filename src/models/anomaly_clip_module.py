@@ -59,7 +59,7 @@ class AnomalyCLIPModule(LightningModule):
         self.net = net
 
         # threshold for normality 
-        self.nthreshold = 0.8
+        self.nthreshold = 0.9
 
         # loss function
         self.criterion = loss
@@ -116,6 +116,7 @@ class AnomalyCLIPModule(LightningModule):
         self.labels = []
         self.abnormal_scores = []
         self.class_probs = []
+        self.centroids = {}
     
     # forward pass of this model which is the same as in anomaly_clip.py
     def forward(
@@ -148,15 +149,14 @@ class AnomalyCLIPModule(LightningModule):
 
         # Path
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-        # centroids_file = Path(save_dir / "centroids.pt")
         centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
 
+        # ncentroid file exists, load
         if ncentroid_file.is_file():
-            # file exists, load
             self.ncentroid = torch.load(ncentroid_file)
-            print("Loaded ncentroid!")
+
+        # ncentroid file does not exist, compute from scratch
         else:
-            print(f"ncentroid file NOT found! Computing ncentroid from scratch...")
             with torch.no_grad(): # no need to compute gradients (freeze the model)
 
                 # Data loader for the normal class
@@ -200,15 +200,16 @@ class AnomalyCLIPModule(LightningModule):
                 # Save the ncentroid  
                 torch.save(self.ncentroid, ncentroid_file)
 
+        # centroids file exists, load
         if centroids_file.is_file():
-            # file exists, load
-            centroids = torch.load(centroids_file)
+            self.centroids = torch.load(centroids_file) # dictionary of tensors
+
+        # centroids file does not exist, intialize with ncentroid
         else:
             # Initialize centroids dict with ncentroid
             normal_idx = self.trainer.datamodule.hparams.normal_id
-            centroids = {}
-            centroids[normal_idx] = self.ncentroid 
-            torch.save(centroids, centroids_file)
+            self.centroids[normal_idx] = self.ncentroid 
+            torch.save(self.centroids, centroids_file)
 
     def model_step(self, batch: Any):
         '''
@@ -239,29 +240,13 @@ class AnomalyCLIPModule(LightningModule):
         # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
 
-        # Load centroids
-        save_dir = Path(self.hparams.save_dir)
-        # centroids_file = Path(save_dir / "centroids.pt")
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        ncentroid_file = Path(save_dir / "ncentroid.pt")
-        
-        if centroids_file.is_file():
-            # file exists, load
-            centroids = torch.load(centroids_file)
-            for label in labels:
-                if label.item() in centroids:
-                    # print(f'Returning ncentroid for {label.item()}')
-                    self.ncentroid = centroids[label.item()]
-                else: 
-                    print(f'ncentroid for {label.item()} not found! Returning general ncentroid in training...')
-                    self.ncentroid = centroids[normal_idx]
+        # Load centroids from on_train_start
+        for label in labels:
+            if label.item() in self.centroids:
+                self.ncentroid = self.centroids[label.item()]
+            else: 
+                self.ncentroid = self.centroids[normal_idx]
 
-        elif ncentroid_file.is_file():
-            self.ncentroid = torch.load(ncentroid_file)
-        
-        else: # never happens because ncentroid is calculated/loaded automatically in on_train_start
-            raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
-        
         # forward from anomaly_clip.py 
         (
             logits,
@@ -286,7 +271,7 @@ class AnomalyCLIPModule(LightningModule):
             idx_topk_nor,
             idx_bottomk_abn,
             image_features,
-            centroids
+            self.centroids
         )
 
     def training_step(self, batch: Any, batch_idx: int):
@@ -365,17 +350,7 @@ class AnomalyCLIPModule(LightningModule):
         updates[normal_idx] = self.ncentroid  
 
         # Update the centroids
-        centroids.update(updates)
-
-        # Save the centroids
-        save_dir = Path(self.hparams.save_dir)
-        # centroids_file = Path(save_dir / "centroids.pt")
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        torch.save(centroids, centroids_file)
-        
-        # for test
-        centroid_test_file = Path(save_dir / f"new_centroids_{self.current_epoch}_{self.nthreshold}.pt")
-        torch.save(centroids, centroid_test_file)
+        self.centroids.update(updates)
 
         # Compute loss
         (
@@ -467,7 +442,12 @@ class AnomalyCLIPModule(LightningModule):
         Args:
             ONLY self (no other arguments)
         '''     
-        pass
+        # Save the centroids after training
+        save_dir = Path(self.hparams.save_dir)
+        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+        torch.save(self.centroids, centroids_file)
+        print(f"Centroids saved to {centroids_file}")
+
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -479,31 +459,25 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
         
-        # Normal index
+        # # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
 
         # Load centroids
         save_dir = Path(self.hparams.save_dir)
-        # centroids_file = Path(save_dir / "centroids.pt")
         centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        ncentroid_file = Path(save_dir / "ncentroid.pt")
         
+        # centroids file exists, load
         if centroids_file.is_file():
-            # file exists, load
-            centroids = torch.load(centroids_file)
-            # for label in labels
-            if label.item() in centroids:
-                # print(f'Returning ncentroid for {label.item()}')
-                self.ncentroid = centroids[label.item()] 
-            else:
-                print(f'ncentroid for {label.item()} not found! Returning general ncentroid in Validation...')
-                self.ncentroid = centroids[normal_idx]
-
-        elif ncentroid_file.is_file():
-            self.ncentroid = torch.load(ncentroid_file)
-
+            self.centroids = torch.load(centroids_file)
         else: 
-            raise FileNotFoundError(f"centroids file {centroids_file} or ncentroid file {ncentroid_file} not found")
+            raise FileNotFoundError(f"centroids file {centroids_file} not found")
+        
+        # for each label in the batch, get the corresponding centroid (if found) or ncentroid
+        for label in labels:
+            if label.item() in self.centroids:
+                self.ncentroid = self.centroids[label.item()]
+            else: 
+                self.ncentroid = self.centroids[normal_idx]
 
         # Forward pass from __init__ which is the same as anomaly_clip.py in Test_mode
         similarity, abnormal_scores = self.forward(
@@ -604,14 +578,17 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores.clear()
 
     def on_test_start(self):
-        # Load ncentroid 
+
+        # Path 
         save_dir = Path(self.hparams.save_dir)
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-        
+        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+
+        # ncentroid file exists, load
         if ncentroid_file.is_file():
             self.ncentroid = torch.load(ncentroid_file)
-
-        # Recalculating the centroids on TRAINING data (not test) just in case 
+            
+        # ncentroid file does not exist, compute from scratch on TRAINING data (not test)
         else:
             with torch.no_grad():
                 loader = self.trainer.datamodule.train_dataloader_test_mode()
@@ -640,6 +617,17 @@ class AnomalyCLIPModule(LightningModule):
             # Compute and save the average embedding
             self.ncentroid = embedding_sum / count
             torch.save(self.ncentroid, ncentroid_file)
+    
+        # centroids file exists, load
+        if centroids_file.is_file():
+            self.centroids = torch.load(centroids_file) # dictionary of tensors
+
+        # centroids file does not exist, intialize with ncentroid
+        else:
+            normal_idx = self.trainer.datamodule.hparams.normal_id
+            self.centroids[normal_idx] = self.ncentroid 
+            torch.save(self.centroids, centroids_file)
+
 
     @rank_zero_only 
     def test_step(self, batch: Any, batch_idx: int):
@@ -650,24 +638,14 @@ class AnomalyCLIPModule(LightningModule):
         # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
 
-        # Load centroids
-        save_dir = Path(self.hparams.save_dir)
-        # centroids_file = Path(save_dir / "centroids.pt")
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        
-        if centroids_file.is_file():
-            # file exists, load
-            centroids = torch.load(centroids_file)
-            for label in labels:
-                if label.item() in centroids:
-                    # print(f'Returning ncentroid for {label.item()}')
-                    self.ncentroid = centroids[label.item()]
-                else: 
-                    print(f'ncentroid for {label.item()} not found! Returning general ncentroid...')
-                    self.ncentroid = centroids[normal_idx]
-        
-        else:
-            raise FileNotFoundError(f"centroids file {centroids_file} not found! Using ncentroid from on_test_start")
+        # for each label in the batch, get the corresponding centroid (if found) or ncentroid
+        for label in labels:
+            if label.item() in self.centroids:
+                print(f'Returning centroid for {label.item()}')
+                self.ncentroid = self.centroids[label.item()]
+            else: 
+                print(f'Returning centroid for ncentroid...')
+                self.ncentroid = self.centroids[normal_idx]
 
         # Forward pass
         similarity, abnormal_scores = self.forward(
