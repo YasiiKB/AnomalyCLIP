@@ -59,7 +59,7 @@ class AnomalyCLIPModule(LightningModule):
         self.net = net
 
         # threshold for normality 
-        self.nthreshold = 0.9
+        self.nthreshold = 0.5
 
         # loss function
         self.criterion = loss
@@ -228,7 +228,6 @@ class AnomalyCLIPModule(LightningModule):
             idx_topk_nor (torch.Tensor): torch.Size([num_segments, k=3])
             idx_bottomk_abn (torch.Tensor): torch.Size([num_segments, k=3])
             image_features (torch.Tensor): torch.Size([ batch_size (64), 1 ,num_segments (32) * seg_length (16), 512]) -- do not go through the model but are used in training_step
-            centroids (dict): dictionary containing the centroids for each label -- updated in training_step
         '''
         # Load from dataloader in Train_mode (not Test_mode) --> batch = (image_features, label)
         nbatch, abatch = batch # ground truth (devide into two parts: normal and abnormal)
@@ -271,7 +270,6 @@ class AnomalyCLIPModule(LightningModule):
             idx_topk_nor,
             idx_bottomk_abn,
             image_features,
-            self.centroids
         )
 
     def training_step(self, batch: Any, batch_idx: int):
@@ -297,10 +295,8 @@ class AnomalyCLIPModule(LightningModule):
             idx_topk_nor,
             idx_bottomk_abn,
             image_features,
-            centroids
         ) = self.model_step(batch)
 
-        
         # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
 
@@ -313,40 +309,59 @@ class AnomalyCLIPModule(LightningModule):
         # Change the shape of the image features [64,1,512,512] --> [512]
         image_features = torch.squeeze(image_features)  # batch_size, num_segments * seg_length, 512
         image_features = image_features.view(-1, d) # 512
-        image_features = image_features.to(self.device)
+        # image_features = image_features.to(self.device)
 
-        # Change the shape of the scores [64*32*16] --> [64, 32, 16] 
-        new_scores = scores.view(batch_size, num_segments, seg_length).to(self.device)
+        # Change the shape of the scores [64*32*16] --> [64, 32* 16] 
+        new_scores = scores.view(batch_size, num_segments* seg_length) 
 
-        # Initialize a dictionary to store centroids for each label
+        # Initialize a dictionary to store centroids for each video (Label)
         updates = {}
 
-        # Iterate over each label and extract the corresponding image feature
+        # Initialize lists to store the indices of abnormal frames for each videos in the batch
+        batch_topk_indices = []
+
+        # Iterate over each video in the batch
         for i, label in enumerate(labels):
-            
-            # Extract the image feature for the current label
-            image_feature_for_label = image_features[i]
-            
-            # Extract the score for the current label
-            score_for_label = new_scores[i]  
+  
+            # Extract the scores for the current label (video) and add a new dimension
+            scores_for_label = new_scores[i].unsqueeze(-1)  # num_segments* seg_length, 1 (32*16, 1)
 
-            # Check if the score is less than threshold (consider it normal)
-            if score_for_label.mean() <= self.nthreshold:
-                if label.item() not in updates:
-                    updates[label.item()] = {
-                        # initialize with the original ncentroid
-                        "embedding_sum": torch.clone(self.ncentroid).to(self.device),
-                        "count": 1
-                    }
-                updates[label.item()]["embedding_sum"] += image_feature_for_label
-                updates[label.item()]["count"] += 1  # not image_feature_for_label.shape[0] because we're initializing with ncentroid #?
-                # updates[label.item()]["count"] += image_feature_for_label.shape[0] #very small amounts for centroids -- too far from ncentroid
+            # Calculate max score ans std of scores for the current label (scaler)
+            max_score = torch.max(scores_for_label).item()
+            std_score = torch.std(scores_for_label).item()
 
+            # Initialize lists to store the indices of abnormal frames for the current video (label)
+            video_topk_indices= []
+
+            # Iterate over each frame in the video
+            for idx, score in enumerate(scores_for_label):
+
+                # Consider frames whose scores are less than or equal to the threshold normal
+                if score.item() <= self.nthreshold:
+                    if label.item() not in updates: #otherwise, all centroids will be the same 
+                        updates[label.item()] = {
+                            # initialize with the original ncentroid
+                            "embedding_sum": torch.clone(self.ncentroid),
+                            "count": 1
+                        }
+                    # Get the corresponding frame index (idx) and its image_features (512)
+                    corresponding_image_feature = image_features[idx]
+
+                    updates[label.item()]["embedding_sum"] += corresponding_image_feature
+                    updates[label.item()]["count"] += 1 # not image_feature_for_label.shape[0] because we're initializing with ncentroid #?
+                    # updates[label.item()]["count"] += image_feature_for_label.shape[0] #very small amounts for centroids -- too far from ncentroid
+
+                # Get the indices of frames whose scores are btw max and std
+                if score.item() > (max_score - std_score): 
+                    video_topk_indices.append(idx)        # different length for each video
+
+            batch_topk_indices.append(video_topk_indices) # len = batch_size
+        
         # Calculate the centroid for each label
         for label in updates:
             updates[label] = updates[label]["embedding_sum"] / updates[label]["count"]
 
-        # Replace the calculated centroid for normal videos with the original one
+        # Replace the calculated centroid for normal videos with the original one (try without this)
         updates[normal_idx] = self.ncentroid  
 
         # Update the centroids
@@ -438,16 +453,12 @@ class AnomalyCLIPModule(LightningModule):
     def on_train_epoch_end(self):
         '''
         This function is called at the end of traning and validation of each epoch
-        
-        Args:
-            ONLY self (no other arguments)
         '''     
-        # Save the centroids after training
-        save_dir = Path(self.hparams.save_dir)
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        torch.save(self.centroids, centroids_file)
-        print(f"Centroids saved to {centroids_file}")
-
+        # Save the final centroids at the end of the last epoch
+        if self.current_epoch == self.trainer.max_epochs:
+            save_dir = Path(self.hparams.save_dir)
+            centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+            torch.save(self.centroids, centroids_file)
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -459,18 +470,8 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device) 
         
-        # # Normal index
+        # Normal index
         normal_idx = self.trainer.datamodule.hparams.normal_id
-
-        # Load centroids
-        save_dir = Path(self.hparams.save_dir)
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-        
-        # centroids file exists, load
-        if centroids_file.is_file():
-            self.centroids = torch.load(centroids_file)
-        else: 
-            raise FileNotFoundError(f"centroids file {centroids_file} not found")
         
         # for each label in the batch, get the corresponding centroid (if found) or ncentroid
         for label in labels:
@@ -582,7 +583,7 @@ class AnomalyCLIPModule(LightningModule):
         # Path 
         save_dir = Path(self.hparams.save_dir)
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+        # centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
 
         # ncentroid file exists, load
         if ncentroid_file.is_file():
@@ -618,15 +619,15 @@ class AnomalyCLIPModule(LightningModule):
             self.ncentroid = embedding_sum / count
             torch.save(self.ncentroid, ncentroid_file)
     
-        # centroids file exists, load
-        if centroids_file.is_file():
-            self.centroids = torch.load(centroids_file) # dictionary of tensors
+        # # centroids file exists, load
+        # if centroids_file.is_file():
+        #     self.centroids = torch.load(centroids_file) # dictionary of tensors
 
-        # centroids file does not exist, intialize with ncentroid
-        else:
-            normal_idx = self.trainer.datamodule.hparams.normal_id
-            self.centroids[normal_idx] = self.ncentroid 
-            torch.save(self.centroids, centroids_file)
+        # # centroids file does not exist, intialize with ncentroid
+        # else:
+        #     normal_idx = self.trainer.datamodule.hparams.normal_id
+        #     self.centroids[normal_idx] = self.ncentroid 
+        #     torch.save(self.centroids, centroids_file)
 
 
     @rank_zero_only 
@@ -641,10 +642,8 @@ class AnomalyCLIPModule(LightningModule):
         # for each label in the batch, get the corresponding centroid (if found) or ncentroid
         for label in labels:
             if label.item() in self.centroids:
-                print(f'Returning centroid for {label.item()}')
                 self.ncentroid = self.centroids[label.item()]
             else: 
-                print(f'Returning centroid for ncentroid...')
                 self.ncentroid = self.centroids[normal_idx]
 
         # Forward pass
