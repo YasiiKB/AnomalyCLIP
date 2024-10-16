@@ -59,7 +59,7 @@ class AnomalyCLIPModule(LightningModule):
         self.net = net
 
         # threshold for normality 
-        self.nthreshold = 0.5
+        self.nthreshold = 0.8
 
         # loss function
         self.criterion = loss
@@ -317,21 +317,21 @@ class AnomalyCLIPModule(LightningModule):
         # Initialize a dictionary to store centroids for each video (Label)
         updates = {}
 
-        # Initialize lists to store the indices of abnormal frames for each videos in the batch
-        batch_topk_indices = []
+        # Initialize lists to store the indices of most normal/abnormal frames for each videos in the batch
+        abatch_topk_indices = []
 
         # Iterate over each video in the batch
         for i, label in enumerate(labels):
   
+            # Initialize lists to store the indices of abnormal frames for the current video (label)
+            avideo_topk_indices= []
+            
             # Extract the scores for the current label (video) and add a new dimension
             scores_for_label = new_scores[i].unsqueeze(-1)  # num_segments* seg_length, 1 (32*16, 1)
 
             # Calculate max score ans std of scores for the current label (scaler)
             max_score = torch.max(scores_for_label).item()
             std_score = torch.std(scores_for_label).item()
-
-            # Initialize lists to store the indices of abnormal frames for the current video (label)
-            video_topk_indices= []
 
             # Iterate over each frame in the video
             for idx, score in enumerate(scores_for_label):
@@ -351,12 +351,20 @@ class AnomalyCLIPModule(LightningModule):
                     updates[label.item()]["count"] += 1 # not image_feature_for_label.shape[0] because we're initializing with ncentroid #?
                     # updates[label.item()]["count"] += image_feature_for_label.shape[0] #very small amounts for centroids -- too far from ncentroid
 
-                # Get the indices of frames whose scores are btw max and std
-                if score.item() > (max_score - std_score): 
-                    video_topk_indices.append(idx)        # different length for each video
+                # Get the indices of abnormal frames whose scores are btw max and std (most abnormal frames)
+                if label.item() != normal_idx and score.item() > (max_score - std_score): 
+                    avideo_topk_indices.append(idx)         # different length for each video
+    
+            # Make a list of avideo_topk_indices 
+            if len(avideo_topk_indices) != 0:
+                abatch_topk_indices.append(avideo_topk_indices) # a list, with len = 32, of lists with len(video_topk_indices)
 
-            batch_topk_indices.append(video_topk_indices) # len = batch_size
-        
+            # Get the min lenght of the topk indices -- not dynamic anymore!
+            # min_len = min([len(video_topk_indices) for video_topk_indices in abatch_topk_indices])
+        abatch_topk_indices = torch.tensor(abatch_topk_indices).to(self.device)
+        print('abatch_topk_indices',abatch_topk_indices.shape)  #32, frames
+       
+        # ---- Multi Centroid ----
         # Calculate the centroid for each label
         for label in updates:
             updates[label] = updates[label]["embedding_sum"] / updates[label]["count"]
@@ -366,6 +374,15 @@ class AnomalyCLIPModule(LightningModule):
 
         # Update the centroids
         self.centroids.update(updates)
+        
+        # ---- Flexible abnormal Topk----
+        # Convert abatch_topk_indices to a tensor with shape [batch/2, min_len]
+        # abatch_topk_indices = torch.tensor([video_topk_indices[:min_len] for video_topk_indices in abatch_topk_indices]).to(self.device)
+ 
+        # Update idx_topk_abn to abatch_topk_indices
+        # self.net.num_topk = min_len
+        # idx_topk_abn = abatch_topk_indices # [batch/2, min_len]
+
 
         # Compute loss
         (
@@ -452,13 +469,18 @@ class AnomalyCLIPModule(LightningModule):
 
     def on_train_epoch_end(self):
         '''
-        This function is called at the end of traning and validation of each epoch
-        '''     
+        This function is called at the end of traning and validation of each epoch.
+        '''
+        # TO DO: Update the current Centroids for Testing on Helmond dataset
+            # Load the last checkoint for each centroid 0.5, 0.3 and 0.8 
+            # Train for one more epoch
+            # Uncomment this to Save the centroids at the end of the epoch     
+            
         # Save the final centroids at the end of the last epoch
-        if self.current_epoch == self.trainer.max_epochs:
-            save_dir = Path(self.hparams.save_dir)
-            centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-            torch.save(self.centroids, centroids_file)
+        # if self.current_epoch == self.trainer.max_epochs:
+            # save_dir = Path(self.hparams.save_dir)
+            # centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+            # torch.save(self.centroids, centroids_file)
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -581,9 +603,13 @@ class AnomalyCLIPModule(LightningModule):
     def on_test_start(self):
 
         # Path 
-        save_dir = Path(self.hparams.save_dir)
+        # save_dir = Path('logs/train/runs/ucfcrime') # for testing Helmond dataset
+        # save_dir = Path('logs/train/runs/shanghaitech') # for testing Helmond dataset
+        save_dir = Path('logs/train/runs/xdviolence') # for testing Helmond dataset
+
+        # save_dir = Path(self.hparams.save_dir)
         ncentroid_file = Path(save_dir / "ncentroid.pt")
-        # centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+        centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
 
         # ncentroid file exists, load
         if ncentroid_file.is_file():
@@ -619,15 +645,15 @@ class AnomalyCLIPModule(LightningModule):
             self.ncentroid = embedding_sum / count
             torch.save(self.ncentroid, ncentroid_file)
     
-        # # centroids file exists, load
-        # if centroids_file.is_file():
-        #     self.centroids = torch.load(centroids_file) # dictionary of tensors
+        # centroids file exists, load
+        if centroids_file.is_file():
+            self.centroids = torch.load(centroids_file) # dictionary of tensors
 
-        # # centroids file does not exist, intialize with ncentroid
-        # else:
-        #     normal_idx = self.trainer.datamodule.hparams.normal_id
-        #     self.centroids[normal_idx] = self.ncentroid 
-        #     torch.save(self.centroids, centroids_file)
+        # centroids file does not exist, intialize with ncentroid
+        else:
+            normal_idx = self.trainer.datamodule.hparams.normal_id
+            self.centroids[normal_idx] = self.ncentroid 
+            torch.save(self.centroids, centroids_file)
 
 
     @rank_zero_only 
@@ -644,7 +670,8 @@ class AnomalyCLIPModule(LightningModule):
             if label.item() in self.centroids:
                 self.ncentroid = self.centroids[label.item()]
             else: 
-                self.ncentroid = self.centroids[normal_idx]
+                # self.ncentroid = self.centroids[normal_idx]
+                self.ncentroid = self.ncentroid
 
         # Forward pass
         similarity, abnormal_scores = self.forward(

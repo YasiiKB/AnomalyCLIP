@@ -1,0 +1,75 @@
+# Test with UCFCrime:
+# _target_: src.data.anomaly_clip_datamodule.AnomalyCLIPDataModule
+# num_workers: 10
+# pin_memory: False
+# num_segments: 32
+# seg_length: 16
+# batch_size: 64
+# batch_size_test: 1
+# num_classes: 14
+# input_size: 224
+# load_from_features: True
+# frames_root: "src/datasets/helmond/Image-Features/"
+# frames_root_val: "src/datasets/helmond/Image-Features/"
+# annotations_root: "src/datasets/helmond/Annotations/"
+# normal_id: 7
+# image_tmpl: "{:06d}.jpg"
+# stride: 1
+# ncrops: 1
+# annotation_file_anomaly: "src/datasets/UCFCrime/Annotations/Anomaly_Train_Abnormal.txt"
+# annotation_file_normal: "src/datasets/UCFCrime/Annotations/Anomaly_Train_Normal.txt"
+# annotation_file_test: "src/datasets/helmond/Annotations/All_anomalies.txt"
+# annotation_file_temporal_test: "src/datasets/UCFCrime/Temporal_Anomaly_Annotation_for_Testing_Videos.txt"
+# labels_file: "data/hl_labels.csv"   # ERROR: b/c there are only 7 classes instead of 14
+# spatialannotationdir_path:
+
+# Test with ShanghaiTech:
+# _target_: src.data.anomaly_clip_datamodule.AnomalyCLIPDataModule
+# num_workers: 10
+# pin_memory: False
+# num_segments: 32
+# seg_length: 16
+# batch_size: 64
+# batch_size_test: 1
+# num_classes: 18
+# input_size: 224
+# load_from_features: True
+# frames_root: "src/datasets/helmond/Image-Features/"
+# frames_root_val: "src/datasets/helmond/Image-Features/"
+# annotations_root: "src/datasets/helmond/Annotations/"
+# normal_id: 8
+# image_tmpl: "{:06d}.jpg"
+# stride: 1
+# ncrops: 1
+# annotation_file_anomaly: "src/datasets/shanghaitech/Anomaly_Train_Abnormal.txt"
+# annotation_file_normal: "src/datasets/shanghaitech/Anomaly_Train_Normal.txt"
+# annotation_file_test: "src/datasets/helmond/Annotations/All_anomalies.txt"
+# annotation_file_temporal_test: "src/datasets/shanghaitech/Temporal_Anomaly_Annotation_for_Testing_Videos.txt"
+# labels_file: "data/hl_labels.csv"  # ERROR: b/c there are only 7 classes instead of 18
+# spatialannotationdir_path:
+
+# Test with XD-Violence:
+_target_: src.data.anomaly_clip_datamodule.AnomalyCLIPDataModule
+num_workers: 10
+pin_memory: False
+num_segments: 32
+seg_length: 16
+batch_size: 64
+batch_size_test: 1
+num_classes: 7
+input_size: 224
+load_from_features: True
+frames_root: "src/datasets/helmond/Image-Features/"
+frames_root_val: "src/datasets/helmond/Image-Features/"
+annotations_root: "src/datasets/helmond/Annotations/"
+normal_id: 4
+image_tmpl: "{:06d}.jpg"
+stride: 1
+ncrops: 1
+annotation_file_anomaly: "src/datasets/helmond/Annotations/Anomaly_Test.txt"
+annotation_file_normal: "src/datasets/helmond/Annotations/Anomaly_Test.txt"
+annotation_file_test: "src/datasets/helmond/Annotations/Anomaly_Test.txt"
+annotation_file_temporal_test: "src/datasets/helmond/Annotations/Temporal_Anomaly_Annotation_for_Testing_Videos.txt"
+labels_file: "data/hl_labels.csv"
+spatialannotationdir_path:
+

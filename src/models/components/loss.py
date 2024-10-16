@@ -155,7 +155,7 @@ class ComputeLoss:
             dim=1,
         )
         class_probs = class_probs.view(-1, self.num_segments, self.frames_per_segment, num_classes)
-        aclass_probs = class_probs[: class_probs.shape[0] // 2]
+        aclass_probs = class_probs[: class_probs.shape[0] // 2] # [batch_size/2, num_seg, frame_per_seg , num_classes]
         nclass_probs = class_probs[class_probs.shape[0] // 2 :]
 
         aclass_probs_topk = torch.gather(
@@ -165,6 +165,9 @@ class ComputeLoss:
             .unsqueeze(3)
             .expand([-1, -1, self.frames_per_segment, num_classes]),
         )
+        # print("aclass_probs_topk", aclass_probs_topk) # 64*k_abn*16, 13
+        # print("aclass_probs_topk.shape", aclass_probs_topk.shape) # 64*k_abn*16, 13
+
         aclass_probs_bottomk = torch.gather(
             aclass_probs,
             1,
@@ -174,12 +177,18 @@ class ComputeLoss:
         )
 
         aclass_probs_topk = aclass_probs_topk.view(-1, num_classes)
+        # print("aclass_probs_topk", aclass_probs_topk)
+        # print("aclass_probs_topk.shape", aclass_probs_topk.shape) 
+
         aclass_probs_bottomk = aclass_probs_bottomk.view(-1, num_classes)
 
         loss_fn = nn.NLLLoss()
 
         # Compute the log probabilities
         aclass_log_probs_topk = torch.log(aclass_probs_topk)
+        # print("aclass_log_probs_topk", aclass_log_probs_topk)
+        # print("aclass_log_probs_topk.shape", aclass_log_probs_topk.shape)
+
         aclass_log_probs_bottomk = torch.log(aclass_probs_bottomk)
 
         alabels_per_topk[alabels_per_topk >= self.normal_id] += 1

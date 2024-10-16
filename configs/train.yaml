@@ -46,8 +46,27 @@ test: True
 compile: False
 
 # simply provide checkpoint path to resume training
+
 ckpt_path: null
-# ckpt_path: "checkpoints/ucfcrime/last.ckpt"
+# ckpt_path: "checkpoints/ucfcrime/last.ckpt" #for original model
+# ckpt_path: "checkpoints/ucfcrime/epoch_049-v3.ckpt" #for 0.4 
+# ckpt_path: "checkpoints/ucfcrime/epoch_049.ckpt" #for 0.5
+# ckpt_path: "checkpoints/ucfcrime/epoch_049-v2.ckpt" #for 0.8
+# ckpt_path: "checkpoints/ucfcrime/epoch_049-v1.ckpt" #for 0.3
+
+# ckpt_path: "checkpoints/shanghaitech/last.ckpt" #for original model
+# ckpt_path: "checkpoints/shanghaitech/epoch_099-v4.ckpt" #for 0.5
+# ckpt_path: "checkpoints/shanghaitech/epoch_099.ckpt" #for 0.4
+# ckpt_path: "checkpoints/shanghaitech/epoch_099-v2.ckpt" #for 0.3
+# ckpt_path: "checkpoints/shanghaitech/epoch_099-v1.ckpt" #for 0.6
+# ckpt_path: "checkpoints/shanghaitech/epoch_099-v3.ckpt" #for 0.8
+
+# ckpt_path: "checkpoints/xdviolence/epoch_049.ckpt" #for original model
+# ckpt_path: "checkpoints/xdviolence/epoch_049-v1.ckpt" #for 0.5
+# ckpt_path: "checkpoints/xdviolence/epoch_049-v2.ckpt" #for 0.3
+# ckpt_path: "checkpoints/xdviolence/epoch_049-v3.ckpt" #for 0.8
+
+
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

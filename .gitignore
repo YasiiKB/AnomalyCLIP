@@ -179,10 +179,13 @@ src/preprocessing
 !/configs/data/shanghaitech.yaml
 !/configs/data/ucfcrime.yaml
 !/configs/data/xdviolence.yaml
+!/configs/data/helmond.yaml
+
 
 !/configs/experiment/shanghaitech.yaml
 !/configs/experiment/ucfcrime.yaml
 !/configs/experiment/xdviolence.yaml
+!/configs/experiment/helmond.yaml
 
 !/configs/model/anomaly_clip_shanghaitech.yaml
 !/configs/model/anomaly_clip_ucfcrime.yaml
