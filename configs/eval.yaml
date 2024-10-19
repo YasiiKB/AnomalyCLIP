@@ -4,12 +4,12 @@ defaults:
   - _self_
   # - data: src.data.anomaly_clip_datamodule.AnomalyCLIPDataModule
   # - data: ucfcrime.yaml     # choose datamodule with `test_dataloader()` for evaluation
+  - data: shanghaitech.yaml
   # - data: xdviolence.yaml
-  # - data: shanghaitech.yaml
-  - data : helmond.yaml
+  # - data : helmond.yaml
   # - model: anomaly_clip_ucfcrime.yaml
-  # - model: anomaly_clip_shanghaitech.yaml
-  - model: anomaly_clip_xdviolence.yaml
+  - model: anomaly_clip_shanghaitech.yaml
+  # - model: anomaly_clip_xdviolence.yaml
   - logger: null
   - trainer: gpu.yaml
   - paths: default.yaml
@@ -21,26 +21,25 @@ task_name: "eval"
 tags: ["dev"]
 
 # passing checkpoint path is necessary for evaluation
+ckpt_path: ???
 
-# ckpt_path: ???
 # ckpt_path: "checkpoints/ucfcrime/last.ckpt" #for original model
-# ckpt_path: "checkpoints/ucfcrime/epoch_049-v3.ckpt" #for 0.4
-# ckpt_path: "checkpoints/ucfcrime/epoch_049.ckpt" #for 0.5
-# ckpt_path: "checkpoints/ucfcrime/epoch_049-v2.ckpt" #for 0.8
-# ckpt_path: "checkpoints/ucfcrime/epoch_049-v1.ckpt" #for 0.3
+# ckpt_path: "checkpoints/ucfcrime/epoch_049-v3.ckpt" #for 0.4 
+# ckpt_path: "checkpoints/ucfcrime/epoch_051.ckpt" #for 0.5
+# ckpt_path: "checkpoints/ucfcrime/epoch_051-v2.ckpt" #for 0.8
+# ckpt_path: "checkpoints/ucfcrime/epoch_051-v1.ckpt" #for 0.3
 
 # ckpt_path: "checkpoints/shanghaitech/last.ckpt" #for original model
-# ckpt_path: "checkpoints/shanghaitech/epoch_099-v4.ckpt" #for 0.5
-# ckpt_path: "checkpoints/shanghaitech/epoch_099.ckpt" #for 0.4
-# ckpt_path: "checkpoints/shanghaitech/epoch_099-v2.ckpt" #for 0.3
+# ckpt_path: "checkpoints/shanghaitech/epoch_101.ckpt" #for 0.5
+# ckpt_path: "checkpoints/shanghaitech/epoch_100.ckpt" #for 0.4
+# ckpt_path: "checkpoints/shanghaitech/epoch_101-v1.ckpt" #for 0.3
 # ckpt_path: "checkpoints/shanghaitech/epoch_099-v1.ckpt" #for 0.6
-# ckpt_path: "checkpoints/shanghaitech/epoch_099-v3.ckpt" #for 0.8
+# ckpt_path: "checkpoints/shanghaitech/epoch_101-v2.ckpt" #for 0.8
 
-ckpt_path: "checkpoints/xdviolence/last.ckpt" #for original model
-# ckpt_path: "checkpoints/xdviolence/epoch_049-v1.ckpt" #for 0.5
-# ckpt_path: "checkpoints/xdviolence/epoch_049-v2.ckpt" #for 0.3
-# ckpt_path: "checkpoints/xdviolence/epoch_049-v3.ckpt" #for 0.8
-
+# ckpt_path: "checkpoints/xdviolence/last.ckpt" #for original model
+# ckpt_path: "checkpoints/xdviolence/epoch_051.ckpt" #for 0.5
+# ckpt_path: "checkpoints/xdviolence/epoch_051-v1.ckpt" #for 0.3
+# ckpt_path: "checkpoints/xdviolence/epoch_051-v2.ckpt" #for 0.8
 
 ## -- Command for evaluation:
 # python src/eval.py model=anomaly_clip_ucfcrime data=helmond

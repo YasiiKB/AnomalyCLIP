@@ -59,7 +59,7 @@ class AnomalyCLIPModule(LightningModule):
         self.net = net
 
         # threshold for normality 
-        self.nthreshold = 0.8
+        self.nthreshold = 0.4
 
         # loss function
         self.criterion = loss
@@ -117,6 +117,7 @@ class AnomalyCLIPModule(LightningModule):
         self.abnormal_scores = []
         self.class_probs = []
         self.centroids = {}
+    
     
     # forward pass of this model which is the same as in anomaly_clip.py
     def forward(
@@ -361,8 +362,8 @@ class AnomalyCLIPModule(LightningModule):
 
             # Get the min lenght of the topk indices -- not dynamic anymore!
             # min_len = min([len(video_topk_indices) for video_topk_indices in abatch_topk_indices])
-        abatch_topk_indices = torch.tensor(abatch_topk_indices).to(self.device)
-        print('abatch_topk_indices',abatch_topk_indices.shape)  #32, frames
+        # abatch_topk_indices = torch.tensor(abatch_topk_indices).to(self.device)
+        # print('abatch_topk_indices',abatch_topk_indices.shape)  #32, frames
        
         # ---- Multi Centroid ----
         # Calculate the centroid for each label
@@ -471,16 +472,11 @@ class AnomalyCLIPModule(LightningModule):
         '''
         This function is called at the end of traning and validation of each epoch.
         '''
-        # TO DO: Update the current Centroids for Testing on Helmond dataset
-            # Load the last checkoint for each centroid 0.5, 0.3 and 0.8 
-            # Train for one more epoch
-            # Uncomment this to Save the centroids at the end of the epoch     
-            
-        # Save the final centroids at the end of the last epoch
-        # if self.current_epoch == self.trainer.max_epochs:
-            # save_dir = Path(self.hparams.save_dir)
-            # centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
-            # torch.save(self.centroids, centroids_file)
+        # UNCOMMENT to Save the final centroids at the end of the last epoch
+        # save_dir = Path(self.hparams.save_dir)
+        # centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
+        # torch.save(self.centroids, centroids_file)
+        # print(f'Centroids_{self.nthreshold} saved')
 
     def validation_step(self, batch: Any, batch_idx: int):
         '''
@@ -604,8 +600,8 @@ class AnomalyCLIPModule(LightningModule):
 
         # Path 
         # save_dir = Path('logs/train/runs/ucfcrime') # for testing Helmond dataset
-        # save_dir = Path('logs/train/runs/shanghaitech') # for testing Helmond dataset
-        save_dir = Path('logs/train/runs/xdviolence') # for testing Helmond dataset
+        save_dir = Path('logs/train/runs/shanghaitech') # for testing Helmond dataset
+        # save_dir = Path('logs/train/runs/xdviolence') # for testing Helmond dataset
 
         # save_dir = Path(self.hparams.save_dir)
         ncentroid_file = Path(save_dir / "ncentroid.pt")
@@ -881,10 +877,20 @@ class AnomalyCLIPModule(LightningModule):
         ax.set_xlabel("Predicted", fontsize=20)
         ax.xaxis.set_label_position("bottom")
         plt.xticks(rotation=90)
+
+        ## For Helmond dataset on UCF_Crime and ShanghaiTech models
+        # ax.xaxis.set_major_locator(plt.FixedLocator(range(len(class_names[:7]))))
+        # ax.xaxis.set_ticklabels(class_names[:7], fontsize=15)
+        
         ax.xaxis.set_ticklabels(class_names, fontsize=15)
         ax.xaxis.tick_bottom()
         #
         ax.set_ylabel("True", fontsize=20)
+
+        ## For Helmond dataset on UCF_Crime and ShanghaiTech models
+        # ax.yaxis.set_major_locator(plt.FixedLocator(range(len(class_names[:7]))))
+        # ax.yaxis.set_ticklabels(class_names[:7], fontsize=15)
+
         ax.yaxis.set_ticklabels(class_names, fontsize=15)
         plt.yticks(rotation=0)
 

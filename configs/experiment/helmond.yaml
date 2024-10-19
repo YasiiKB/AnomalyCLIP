@@ -6,8 +6,8 @@
 defaults:
   - override /data: helmond.yaml
   # - override /model: anomaly_clip_ucfcrime.yaml       #model used for testing
-  # - override /model: anomaly_clip_shanghaitech.yaml   #model used for testing
-  - override /model: anomaly_clip_xdviolence.yaml     #model used for testing
+  - override /model: anomaly_clip_shanghaitech.yaml   #model used for testing
+  # - override /model: anomaly_clip_xdviolence.yaml     #model used for testing
   - override /callbacks: default.yaml
   - override /trainer: gpu.yaml
   - override /logger: wandb.yaml
@@ -17,8 +17,8 @@ defaults:
 
 seed: 1024
 # exp_name: ucfcrime
-# exp_name: shanghaitech
-exp_name: xdviolence
+exp_name: shanghaitech
+# exp_name: xdviolence
 hydra:
   run:
     dir: ${paths.log_dir}/${task_name}/runs/${exp_name}
