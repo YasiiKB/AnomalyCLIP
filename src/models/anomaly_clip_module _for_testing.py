@@ -59,7 +59,7 @@ class AnomalyCLIPModule(LightningModule):
         self.net = net
 
         # threshold for normality 
-        self.nthreshold = 0.5
+        self.nthreshold = 1
 
         # loss function
         self.criterion = loss
@@ -600,11 +600,10 @@ class AnomalyCLIPModule(LightningModule):
     def on_test_start(self):
 
         # Path 
-        # save_dir = Path('logs/train/runs/ucfcrime')   # for running eval.py
-        save_dir = Path('logs/train/runs/shanghaitech') # for running eval.py
-        # save_dir = Path('logs/train/runs/xdviolence') # for running eval.py
+        # save_dir = Path('logs/train/runs/ucfcrime') # for testing Helmond dataset
+        save_dir = Path('logs/train/runs/shanghaitech') # for testing Helmond dataset
+        # save_dir = Path('logs/train/runs/xdviolence') # for testing Helmond dataset
 
-        # save_dir = Path(self.hparams.save_dir)
         ncentroid_file = Path(save_dir / "ncentroid.pt")
         centroids_file = Path(save_dir / f"centroids_{self.nthreshold}.pt")
 
@@ -659,31 +658,35 @@ class AnomalyCLIPModule(LightningModule):
         image_features = image_features.to(self.device)
         labels = labels.squeeze(0).to(self.device)
 
-        # Normal index
-        normal_idx = self.trainer.datamodule.hparams.normal_id
+        # Initialize lists to store the results of the forward pass for each centroid
+        all_similarities = []
+        all_abnormal_scores = []
 
-        # for each label in the batch, get the corresponding centroid (if found) or ncentroid
-        for label in labels:
-            if label.item() in self.centroids:
-                self.ncentroid = self.centroids[label.item()]
-            else: 
-                # self.ncentroid = self.centroids[normal_idx]
-                self.ncentroid = self.ncentroid
+        # Iterate through each centroid in the dictionary
+        for centroid_key, centroid in self.centroids.items():
+            print(f"Testing centroid {centroid_key}")
+            # Forward pass for the current centroid
+            similarity, abnormal_scores = self.forward(
+                image_features,
+                labels,
+                centroid,
+                segment_size,
+                test_mode=True,
+            )
 
-        # Forward pass
-        similarity, abnormal_scores = self.forward(
-            image_features,
-            labels,
-            self.ncentroid,
-            segment_size,
-            test_mode=True,
-        )
+            # Store the results
+            all_similarities.append(similarity)
+            all_abnormal_scores.append(abnormal_scores)
+
+        # Concatenate the results along the appropriate dimension
+        all_similarities = torch.cat(all_similarities, dim=0)
+        all_abnormal_scores = torch.cat(all_abnormal_scores, dim=0)
 
         # Compute conditional probabilities
-        softmax_similarity = torch.softmax(similarity, dim=1)
+        softmax_similarity = torch.softmax(all_similarities, dim=1)
 
         # Compute joint probabilities
-        class_probs = softmax_similarity * abnormal_scores.unsqueeze(1)
+        class_probs = softmax_similarity * all_abnormal_scores.unsqueeze(1)
 
         # Remove padded frames
         num_labels = labels.shape[0]
@@ -878,10 +881,20 @@ class AnomalyCLIPModule(LightningModule):
         ax.set_xlabel("Predicted", fontsize=20)
         ax.xaxis.set_label_position("bottom")
         plt.xticks(rotation=90)
+
+        ## For Helmond dataset on UCF_Crime and ShanghaiTech models
+        # ax.xaxis.set_major_locator(plt.FixedLocator(range(len(class_names[:7]))))
+        # ax.xaxis.set_ticklabels(class_names[:7], fontsize=15)
+        
         ax.xaxis.set_ticklabels(class_names, fontsize=15)
         ax.xaxis.tick_bottom()
-        #
+        
         ax.set_ylabel("True", fontsize=20)
+
+        ## For Helmond dataset on UCF_Crime and ShanghaiTech models
+        # ax.yaxis.set_major_locator(plt.FixedLocator(range(len(class_names[:7]))))
+        # ax.yaxis.set_ticklabels(class_names[:7], fontsize=15)
+
         ax.yaxis.set_ticklabels(class_names, fontsize=15)
         plt.yticks(rotation=0)
 

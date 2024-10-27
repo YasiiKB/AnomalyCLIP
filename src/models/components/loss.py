@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import sys
 
 # λ1 
 def sparsity(arr, lambda_sparse):
@@ -93,6 +93,7 @@ class ComputeLoss:
         alabels = labels[: labels.shape[0] // 2]
         nlabels = labels[labels.shape[0] // 2 :]
 
+        
         # Repeat the labels to match the similarity shape
         repeat_interleave_params = [
             (alabels, self.num_segments * self.frames_per_segment),
@@ -113,6 +114,29 @@ class ComputeLoss:
         alabels_per_frame[alabels_per_frame > self.normal_id] -= 1
         alabels_per_topk[alabels_per_topk > self.normal_id] -= 1
 
+
+        # with open ('test.txt', 'w') as f:
+        #     # Redirect standard output to the file
+        #     sys.stdout = f
+        #     print('Similarity shape', similarity.shape) # 32*16, 13
+        #     print('Similarity_topk shape', similarity_topk.shape) # 32*k_abn*16, 13
+
+        #     print("alabels before", alabels)
+        #     print('alabels.shape', alabels.shape) # 32
+        #     print("alabels_per_frame after", alabels_per_frame)
+        #     print('alabels_per_frame.shape', alabels_per_frame.shape) # 32*32*16
+        #     print("alabels_per_topk after", alabels_per_topk)
+        #     print('alabels_per_topk.shape', alabels_per_topk.shape) # 32*k_abn*16
+           
+        #     print('asimilarity_topk', asimilarity_topk) 
+        #     print('asimilarity_topk.shape', asimilarity_topk.shape) # 32*k_abn*16, 13
+        #     print('nsimilarity', nsimilarity)
+        #     print('nsimilarity.shape', nsimilarity.shape) # 32*16, 13
+        #     print('alabels_per_frame after similarity',alabels_per_frame)
+        #     print('alabels_per_topk after similarity',alabels_per_topk)
+            
+        #     sys.stdout = sys.__stdout__
+
         asimilarity_topk_total = []
 
         for c in range(similarity.shape[1]):
@@ -123,7 +147,6 @@ class ComputeLoss:
                 
                 # Get the similarity scores for the abnormal frames of class c 
                 asimilarity_topk_c = asimilarity_topk[abnormal_indices_topk, c]  # (bs_c*k*seg_len)
-
                 asimilarity_topk_total.append(asimilarity_topk_c)
 
         asimilarity_topk_total = torch.cat(asimilarity_topk_total, dim=0)
@@ -164,9 +187,7 @@ class ComputeLoss:
             idx_topk_abn.unsqueeze(2)
             .unsqueeze(3)
             .expand([-1, -1, self.frames_per_segment, num_classes]),
-        )
-        # print("aclass_probs_topk", aclass_probs_topk) # 64*k_abn*16, 13
-        # print("aclass_probs_topk.shape", aclass_probs_topk.shape) # 64*k_abn*16, 13
+        ) # [batch_size/2, num_topk(K), frame_per_seg, num_classes]
 
         aclass_probs_bottomk = torch.gather(
             aclass_probs,
@@ -176,23 +197,21 @@ class ComputeLoss:
             .expand([-1, -1, self.frames_per_segment, num_classes]),
         )
 
-        aclass_probs_topk = aclass_probs_topk.view(-1, num_classes)
-        # print("aclass_probs_topk", aclass_probs_topk)
-        # print("aclass_probs_topk.shape", aclass_probs_topk.shape) 
-
+        aclass_probs_topk = aclass_probs_topk.view(-1, num_classes) # [batch_size/2 * num_topk(K) * frame_per_seg, num_classes] = [1536, num_classes]
         aclass_probs_bottomk = aclass_probs_bottomk.view(-1, num_classes)
 
         loss_fn = nn.NLLLoss()
 
         # Compute the log probabilities
         aclass_log_probs_topk = torch.log(aclass_probs_topk)
-        # print("aclass_log_probs_topk", aclass_log_probs_topk)
-        # print("aclass_log_probs_topk.shape", aclass_log_probs_topk.shape)
-
         aclass_log_probs_bottomk = torch.log(aclass_probs_bottomk)
 
+        print("alabels_per_topk before", alabels_per_topk)  # too big values! 
+        # it should be labels like ([11, 11, 11,  ...,  0,  0,  0], device='cuda:0')
+        # but it's like = alabels_per_topk before tensor([ 1, 97, 364825472,  ...,  0,  0, 364810608], device='cuda:0')
+
         alabels_per_topk[alabels_per_topk >= self.normal_id] += 1
-        
+            
         # assert that normal id is not in abnormal labels
         assert torch.all(alabels_per_topk != self.normal_id), "Normal id is in abnormal labels"
 
