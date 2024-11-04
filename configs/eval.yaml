@@ -21,7 +21,7 @@ task_name: "eval"
 tags: ["dev"]
 
 # passing checkpoint path is necessary for evaluation
-ckpt_path: ???
+# ckpt_path: ???
 
 # ckpt_path: "checkpoints/ucfcrime/last.ckpt" #for original model
 # ckpt_path: "checkpoints/ucfcrime/epoch_049-v3.ckpt" #for 0.4 
@@ -30,7 +30,7 @@ ckpt_path: ???
 # ckpt_path: "checkpoints/ucfcrime/epoch_051-v1.ckpt" #for 0.3
 
 # ckpt_path: "checkpoints/shanghaitech/last.ckpt" #for original model
-# ckpt_path: "checkpoints/shanghaitech/epoch_101.ckpt" #for 0.5
+ckpt_path: "checkpoints/shanghaitech/epoch_101.ckpt" #for 0.5
 # ckpt_path: "checkpoints/shanghaitech/epoch_100.ckpt" #for 0.4
 # ckpt_path: "checkpoints/shanghaitech/epoch_101-v1.ckpt" #for 0.3
 # ckpt_path: "checkpoints/shanghaitech/epoch_099-v1.ckpt" #for 0.6

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, List
 
 import matplotlib.pyplot as plt
+from PIL import Image
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -886,6 +887,45 @@ class AnomalyCLIPModule(LightningModule):
         plt.yticks(rotation=0)
 
         fig_file = save_dir / f"confusion_matrix_{self.nthreshold}.png"
+        plt.savefig(fig_file)
+        plt.close()
+
+        # Plots for Qualitative results
+
+        # Convert to numpy
+        abnormal_scores = abnormal_scores.cpu().data.numpy()
+        labels = labels.cpu().data.numpy()
+
+        # start = 141869 - 24064
+        # end = 141869      
+        start = 764
+        end = 764 + 432
+        
+        # Create a figure and axis
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
+
+        # Plot anomaly scores on the first subplot
+        ax1.plot(abnormal_scores[start:end], label="Anomaly Scores")
+        ax1.set_xlabel("Frame Index")
+        ax1.set_ylabel("Anomaly Score")
+        ax1.set_title("Anomaly Scores")
+        ax1.legend()
+
+        # Plot labels on the second subplot
+        ax2.plot(labels[start:end], label="Labels")
+        ax2.set_xlabel("Frame Index")
+        ax2.set_ylabel("Labels")
+        ax2.legend()
+
+        # loop through the lables and print the first frame index where the label is not normal_idx
+        predictions = []
+        for i, label in enumerate(labels[start:end]):
+            if label != normal_idx:
+                predictions.append(i)
+        print(f'Anomaly detected at frame index: {predictions[0]} until frame index: {predictions[-1]}')
+
+        # Save the plot
+        fig_file = save_dir / f"Abnormal Scores Plot_{self.nthreshold}.png"
         plt.savefig(fig_file)
         plt.close()
 
