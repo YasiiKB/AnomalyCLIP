@@ -601,8 +601,8 @@ class AnomalyCLIPModule(LightningModule):
     def on_test_start(self):
 
         # Path 
-        # save_dir = Path('logs/train/runs/ucfcrime')   # for running eval.py
-        save_dir = Path('logs/train/runs/shanghaitech') # for running eval.py
+        save_dir = Path('logs/train/runs/ucfcrime')   # for running eval.py
+        # save_dir = Path('logs/train/runs/shanghaitech') # for running eval.py
         # save_dir = Path('logs/train/runs/xdviolence') # for running eval.py
 
         # save_dir = Path(self.hparams.save_dir)
@@ -705,6 +705,7 @@ class AnomalyCLIPModule(LightningModule):
 
         num_classes = self.trainer.datamodule.num_classes
         normal_idx = self.trainer.datamodule.hparams.normal_id
+        # normal_idx = 7
 
         # add normal probability to the class probabilities
         normal_probs = 1 - abnormal_scores
@@ -733,6 +734,13 @@ class AnomalyCLIPModule(LightningModule):
             (class_probs[:, :normal_idx], class_probs[:, normal_idx + 1 :]),
             dim=1,
         )
+
+        print(f'label: {labels}')
+        print(f'labels_binary: {labels_binary}')
+        print(f'auc_roc: {auc_roc}')
+        print(f'auc_pr: {auc_pr}')
+        print(f'precision: {precision}')
+        print(f'recall: {recall}')
 
         # select predictions based on abnormal score and class probabilities
         y_pred = []
@@ -895,12 +903,17 @@ class AnomalyCLIPModule(LightningModule):
         # Convert to numpy
         abnormal_scores = abnormal_scores.cpu().data.numpy()
         labels = labels.cpu().data.numpy()
+   
+        # start = 764 #skateboard 01_0015
+        # end = 764 + 432
 
-        # start = 141869 - 24064
-        # end = 141869      
-        start = 764
-        end = 764 + 432
+        start = 47990 #arson016
+        end = 47990 + 1794
+
+        # start = 0 #Abuse/City.of.God
+        # end =2000
         
+
         # Create a figure and axis
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
 
